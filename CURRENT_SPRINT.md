@@ -2,7 +2,7 @@
 # CURRENT_SPRINT.md
 ## Open Engineering Platform (OEP)
 
-Sprint: 002
+Sprint: 003
 
 Status: Active
 
@@ -10,25 +10,25 @@ Status: Active
 
 # Sprint Name
 
-Foundation Generator
+Repository Metadata System
 
 ---
 
 # Sprint Objective
 
-Implement the Foundation Generator inside the OEP CLI, so that `oep init <repository-name>` produces a Standard Repository conforming to OEP-SPEC-002-FOUNDATION_REPOSITORY.
+Implement the Repository Metadata System per OEP-SPEC-003-REPOSITORY_METADATA: a strongly typed metadata model, loader, writer, and validation for `repository.json`.
 
-The goal is not to implement the Repository Engine.
+The goal is not to implement the full Repository Engine.
 
-The goal is to generate the correct on-disk structure that future Repository Engine work will operate on.
+The goal is to establish the metadata foundation that Foundation, Studios, SDKs, and the Registry will rely on to identify and describe a repository.
 
 ---
 
 # Primary Deliverable
 
-`oep init`
+`platform/repository` metadata module
 
-The Foundation Generator, implemented inside the CLI, becomes the mechanism for creating new OEP repositories.
+Exposes `RepositoryMetadata`, a loader, a writer, and validation, consumed by the Foundation Generator and available to future Foundation components.
 
 ---
 
@@ -36,9 +36,10 @@ The Foundation Generator, implemented inside the CLI, becomes the mechanism for 
 
 This sprint includes:
 
-- `init` command
-- Foundation Repository generator (directories, README.md, .gitignore, repository.json, workspace.json)
-- Repository ID generation
+- `platform/repository` library
+- Metadata schema, loader, writer, validation
+- Foundation Generator integration
+- Unit tests
 - Documentation updates
 
 ---
@@ -47,19 +48,19 @@ This sprint includes:
 
 The following items are explicitly excluded from this sprint:
 
-- Repository Engine (reading/validating Engineering Objects)
+- Registry synchronization
+- Authentication
+- Cloud services
+- workspace.json schema changes
 - Runtime
 - SDKs
 - Exchange
 - Studios
 - Plugin System
-- Authentication
 - Networking
-- Repository Synchronization
 - Marketplace
 - Licensing
 - Hardware Integration
-- Enterprise/Educational/Embedded repository types
 
 If implementation of these items appears necessary, document the dependency and continue working within the current sprint boundaries.
 
@@ -69,10 +70,10 @@ If implementation of these items appears necessary, document the dependency and 
 
 This sprint is complete when:
 
-- The CLI builds successfully.
-- `oep init <repository-name>` creates the repository exactly as specified in OEP-SPEC-002.
-- Generation fails safely against an existing non-empty destination.
-- The repository remains buildable.
+- The project builds successfully.
+- Repository metadata loads, validates, and saves correctly.
+- `oep init` populates `repository.json` via the new metadata writer.
+- Unit tests pass.
 - Documentation is updated.
 
 ---
@@ -173,3 +174,9 @@ Only then may the sprint be considered complete.
 # Task 000002 — Verified Complete
 
 `oep init my-workshop` was built and executed with MSVC 19.51 via CMake/Ninja. The generated repository matched OEP-SPEC-002-FOUNDATION_REPOSITORY exactly: `repository/`, `workspace/`, `packages/`, `cache/`, `logs/`, `exports/`, `settings/`, plus `README.md`, `.gitignore`, `repository.json`, and `workspace.json` with a valid UUIDv4 repository ID. Re-running `init` against the same (now non-empty) directory failed safely with exit code 1 and made no changes. Sprint 002 acceptance criteria are satisfied.
+
+---
+
+# Task 000003 — Verified Complete
+
+The `platform/repository` metadata module (schema, loader, writer, validation, internal JSON parser/serializer) was built with MSVC 19.51 via CMake/Ninja. `oep_repository_tests` (6 cases covering valid load, invalid JSON, missing fields, bad UUID, save/round-trip with timestamp refresh, and rejection of invalid metadata) passed via CTest. `oep init` now populates `repository.json` through the new metadata writer, verified end-to-end to match OEP-SPEC-003's schema with no leftover temporary file. Sprint 003 acceptance criteria are satisfied.

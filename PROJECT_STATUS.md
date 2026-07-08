@@ -203,7 +203,7 @@ Complete (`oep init`, OEP-SPEC-002 Standard Repository)
 
 Repository Engine
 
-Not Started
+Not Started (metadata system complete; Engineering Object storage/relationships not started)
 
 Runtime
 

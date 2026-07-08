@@ -1,0 +1,4 @@
+add_executable(oep_repository_tests metadata_tests.cpp)
+target_link_libraries(oep_repository_tests PRIVATE oep_repository)
+
+add_test(NAME oep_repository_tests COMMAND oep_repository_tests)

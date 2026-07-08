@@ -2,7 +2,7 @@
 # TASK.md
 ## Open Engineering Platform (OEP)
 
-Task ID: 000002
+Task ID: 000003
 
 Status: Complete
 
@@ -10,17 +10,17 @@ Status: Complete
 
 # Current Task
 
-Implement the Foundation Generator inside the OEP CLI.
+Implement the Repository Metadata System per OEP-SPEC-003-REPOSITORY_METADATA.
 
-This delivers `oep init <repository-name>`, generating a Standard Repository exactly as defined by OEP-SPEC-002-FOUNDATION_REPOSITORY.
+This delivers a strongly typed `repository.json` metadata model, with a loader, a writer, and validation, used by the Foundation Generator and available to future Foundation components.
 
 ---
 
 # Context
 
-TASK-000001 (OEP CLI command architecture) is complete and accepted.
+TASK-000002 (Foundation Generator / `oep init`) is complete and accepted.
 
-OEP-SPEC-002-FOUNDATION_REPOSITORY.md defines the canonical repository structure the generator must produce.
+OEP-SPEC-003-REPOSITORY_METADATA.md defines the metadata schema, identity rules, and load/save/validation requirements. Sprint 003 focuses exclusively on `repository.json`.
 
 ---
 
@@ -30,36 +30,31 @@ Complete the following tasks only.
 
 ## Objective 1
 
-Implement the `init` command using the existing `oep::cli::Command` extension point.
+Add a new `platform/repository` module (library) exposing a strongly typed `RepositoryMetadata` object matching the OEP-SPEC-003 schema.
 
 ---
 
 ## Objective 2
 
-Implement a Foundation Repository generator that creates, at `<repository-name>`:
-
-- `repository/`, `workspace/`, `packages/`, `cache/`, `logs/`, `exports/`, `settings/`
-- `README.md`, `.gitignore`, `repository.json`, `workspace.json`
-
-Per OEP-SPEC-002 sections 5–7.
+Implement a metadata loader that parses `repository.json`, validates required fields, UUID format, version format, and reports descriptive errors on malformed input without modifying anything.
 
 ---
 
 ## Objective 3
 
-Generation must be deterministic in structure (identical directories/files every run) with a globally unique repository ID per generated repository, and must fail safely (no partial repository) if the destination already exists and is non-empty.
+Implement a metadata writer that saves `RepositoryMetadata`, updates `lastModifiedUtc`, and writes atomically (never leaving a partially-written file).
 
 ---
 
 ## Objective 4
 
-Verify the build and exercise `oep init`.
+Update the Foundation Generator (`oep init`) to populate `repository.json` through this new metadata writer instead of hand-written JSON.
 
-Confirm:
+---
 
-- Project compiles
-- `oep init <name>` produces the exact structure required by OEP-SPEC-002
-- Re-running against an existing non-empty directory fails without modifying it
+## Objective 5
+
+Add unit tests validating the loader (valid file, invalid JSON, missing required fields, bad UUID) and the writer (round-trip, timestamp update).
 
 ---
 
@@ -67,16 +62,11 @@ Confirm:
 
 Do not implement:
 
-- Runtime
-- SDK
-- Studios
-- Repository Engine (reading/validating Engineering Objects)
-- Exchange
-- Networking
+- Registry synchronization
 - Authentication
-- Plugin system
-- GUI
-- Enterprise/Educational/Embedded repository types
+- Cloud services
+- workspace.json schema changes
+- Runtime, SDK, Studios, Exchange, Networking, Plugin system, GUI
 
 These systems belong to future tasks.
 
@@ -84,9 +74,9 @@ These systems belong to future tasks.
 
 # Deliverables
 
-- `init` command
-- Foundation Repository generator
-- Updated documentation
+- `platform/repository` library (metadata model, loader, writer, validation)
+- Updated Foundation Generator
+- Unit tests for loader and writer
 
 ---
 
@@ -95,9 +85,11 @@ These systems belong to future tasks.
 This task is complete only when:
 
 - The project builds successfully.
-- `oep init <repository-name>` creates the repository exactly as specified in OEP-SPEC-002.
-- No undocumented files or directories are generated.
-- The architecture remains modular.
+- Repository metadata loads successfully from a well-formed `repository.json`.
+- Invalid metadata (malformed JSON, missing fields, bad UUID) is detected and reported without modifying files.
+- Metadata can be written safely (atomic write, updated timestamp).
+- `oep init` produces `repository.json` via the new metadata writer.
+- Unit tests pass.
 
 ---
 
@@ -109,7 +101,7 @@ Favor maintainability.
 
 Favor simplicity.
 
-Leave extension points for future repository types.
+No external JSON library dependency — implement the minimal parser/serializer this schema requires.
 
 Avoid speculative implementation.
 
@@ -148,8 +140,8 @@ Do not begin the next task until the current task has been reviewed and accepted
 
 Built with MSVC 19.51 (Visual Studio Build Tools 18) via CMake + Ninja.
 
-- Build: succeeded
-- `oep init my-workshop`: generated exactly the structure required by OEP-SPEC-002 (7 directories, 4 root files), valid UUIDv4 `repositoryId`, exit code 0
-- Re-running `oep init my-workshop` against the now non-empty directory: failed safely, exit code 1, no files modified
+- Build: succeeded (`platform/repository`, `platform/cli`, `tests/repository`)
+- `oep_repository_tests` (CTest): 6/6 cases passed — valid load, invalid JSON rejected, missing required fields rejected, malformed UUID rejected, save/round-trip refreshes `lastModifiedUtc`, invalid metadata rejected on save with no file written
+- `oep init my-workshop`: `repository.json` generated via the new metadata writer, matches OEP-SPEC-003 schema exactly, no leftover `.tmp` file, exit code 0
 
-Task 000002 is complete pending formal acceptance.
+Task 000003 is complete pending formal acceptance.

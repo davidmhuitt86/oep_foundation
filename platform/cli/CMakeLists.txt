@@ -12,3 +12,4 @@ add_executable(oep
 
 target_include_directories(oep PRIVATE include src)
 target_compile_features(oep PRIVATE cxx_std_23)
+target_link_libraries(oep PRIVATE oep_repository)
