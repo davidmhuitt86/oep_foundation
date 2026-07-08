@@ -221,6 +221,10 @@ Repository Validation
 
 Complete (`RepositoryValidator` — ten integrity checks, deterministic report — per OEP-SPEC-009)
 
+Package System
+
+Complete (`PackageManager` — discover/load/list, Loaded/Invalid/Disabled states — per OEP-SPEC-010; installation/registry/updates/dependencies deferred)
+
 Runtime
 
 Not Started
