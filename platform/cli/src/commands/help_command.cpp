@@ -20,7 +20,9 @@ int HelpCommand::execute(const std::vector<std::string>& /*args*/) const {
     std::cout << "  oep <command>\n\n";
     std::cout << "Commands:\n";
     for (const auto& command : registry_.commands()) {
-        std::cout << "  " << command->name() << "\t" << command->description() << "\n";
+        std::cout << "  " << command->name() << "\n";
+        std::cout << "      Syntax:      " << command->usage() << "\n";
+        std::cout << "      Description: " << command->description() << "\n";
     }
     return 0;
 }

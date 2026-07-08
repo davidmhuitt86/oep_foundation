@@ -2,7 +2,7 @@
 # TASK.md
 ## Open Engineering Platform (OEP)
 
-Task ID: 000011
+Task ID: 000012
 
 Status: Complete
 
@@ -10,21 +10,21 @@ Status: Complete
 
 # Current Task
 
-Implement the Foundation Runtime per OEP-SPEC-011-FOUNDATION_RUNTIME.
+Implement the CLI Command Framework Expansion per OEP-SPEC-012-CLI_COMMAND_FRAMEWORK.
 
-This delivers a `FoundationRuntime` class that coordinates the existing Repository, Search, Validation, and Package Manager subsystems behind a single lifecycle interface, without reimplementing any of their logic.
+This expands `oep` from a bootstrap utility into a thin, Runtime-backed developer interface: `oep open`, `oep validate`, `oep packages`, `oep status`, a richer help system, and `platform/runtime/CLI_USAGE.md`.
 
 ---
 
 # Context
 
-TASK-000010 (Package System Foundation) is complete and accepted.
+TASK-000011 (Foundation Runtime) is complete and accepted.
 
-OEP-SPEC-011-FOUNDATION_RUNTIME.md defines the five runtime states, the Initialize/OpenRepository/CloseRepository/Shutdown lifecycle, the service registry (Repository, Search, Validation, Package Manager), and the guards the Runtime must enforce (no concurrent repositories, no service access before initialization or after shutdown).
+OEP-SPEC-012-CLI_COMMAND_FRAMEWORK.md defines the four new commands, requires every command needing repository access to go through `FoundationRuntime` rather than constructing Repository services directly, requires Name/Syntax/Description in the help system, and requires `platform/runtime/CLI_USAGE.md` as part of the Definition of Done.
 
-`platform/runtime` already exists as a scaffolded, empty module per the frozen architecture — this task specifies and fills it in for the first time, the same pattern used for `platform/search` and `platform/validation`.
+To make commands unit-testable without spawning the built executable as a subprocess, `platform/cli` is refactored so command logic lives in a static library (`oep_cli_core`) that both the `oep` executable and the test suite link against; `main.cpp` becomes a thin wrapper.
 
-Scope note: opening a repository requires deciding where, within a generated repository's `repository/` directory, Engineering Objects, Relationships, and Audit Events actually live on disk — a convention no prior sprint established (`ObjectStore`/`RelationshipStore`/`AuditStore` have only ever been exercised against arbitrary test paths). This task establishes that convention (`repository/objects/`, `repository/relationships/`, `repository/audit/`) as part of `FoundationRuntime::open_repository`. It does not wire this into `oep init`/the Foundation Generator — that remains a separate, future integration decision.
+The Foundation version string ("0.1.0") was previously duplicated between `VersionCommand` and the Foundation Generator; consolidated into one `oep::cli::kFoundationVersion` constant, now also passed to `FoundationRuntime`.
 
 ---
 
@@ -34,31 +34,31 @@ Complete the following tasks only.
 
 ## Objective 1
 
-Add `RuntimeState` (Uninitialized, Initialized, RepositoryOpen, RepositoryClosed, Shutdown) and `FoundationRuntime` to `platform/runtime`.
+Refactor `platform/cli` into `oep_cli_core` (library) + a thin `oep` executable, without changing existing command behavior.
 
 ---
 
 ## Objective 2
 
-Implement the lifecycle: `initialize()`, `open_repository(path)`, `close_repository()`, `shutdown()`, with deterministic, descriptive-error-producing state transitions per the state diagram implied by the spec.
+Implement `oep open <repository>`, `oep validate [repository]`, `oep packages [repository]`, `oep status [repository]`, each obtaining services exclusively through `FoundationRuntime` (initialize → open_repository → do the command's work → shutdown). `validate`/`packages`/`status` default to the current working directory when no repository path is given.
 
 ---
 
 ## Objective 3
 
-`open_repository` loads `repository.json` via the existing metadata loader, then constructs and registers `ObjectStore`, `RelationshipStore`, `AuditStore`, `SearchEngine` (indexed), `RepositoryValidator`, and `PackageManager` for that repository — reusing each subsystem exactly as it already exists, adding no new logic to any of them.
+Extend the `Command` interface with a `usage()` method (defaulting to `"oep " + name()`, overridden where a command takes arguments) and update `HelpCommand` to print Name, Syntax, and Description for every registered command.
 
 ---
 
 ## Objective 4
 
-Expose Current Repository, Current Metadata, and Current Package Set, plus accessors for each registered service, all of which are only available while a repository is open (nullptr/failure otherwise — including before initialization and after shutdown or close).
+Write `platform/runtime/CLI_USAGE.md`: purpose, build prerequisites/instructions, running the CLI, every implemented command, example sessions with expected output, the repository layout Foundation expects, current limitations, and troubleshooting tips.
 
 ---
 
 ## Objective 5
 
-Add unit tests validating initialization, shutdown (including idempotency and auto-closing an open repository), repository open/close lifecycle, invalid state transitions (opening before initializing, opening twice, accessing services before open or after close/shutdown), and that all four services are actually registered and usable once a repository is open.
+Add unit tests (linking `oep_cli_core` directly, no subprocess spawning) verifying: each new command's execution against a real repository, Runtime integration (services obtained only via `FoundationRuntime`), invalid-repository handling, help generation listing all commands, and descriptive (non-crashing, non-stack-trace) error reporting.
 
 ---
 
@@ -66,13 +66,13 @@ Add unit tests validating initialization, shutdown (including idempotency and au
 
 Do not implement:
 
-- User interface behavior
-- Networking
-- Cloud synchronization
-- AI services
-- Multiple concurrent repositories
-- Wiring the `repository/objects|relationships|audit` convention into `oep init`
-- SDK, Studios, Exchange, Authentication, Plugin system, GUI
+- Interactive shell mode
+- Scripting language support
+- Remote execution
+- Studio user interfaces
+- Structured/JSON command output
+- Detailed per-command help beyond Name/Syntax/Description
+- Runtime, SDK, Exchange, Authentication, Plugin system, GUI beyond what's already implemented
 
 These systems belong to future tasks.
 
@@ -80,7 +80,10 @@ These systems belong to future tasks.
 
 # Deliverables
 
-- `platform/runtime` module (`FoundationRuntime`, `RuntimeState`)
+- `oep_cli_core` library + thin `oep` executable
+- `open`/`validate`/`packages`/`status` commands
+- Extended help system (Name/Syntax/Description)
+- `platform/runtime/CLI_USAGE.md`
 - Unit tests
 
 ---
@@ -90,11 +93,14 @@ These systems belong to future tasks.
 This task is complete only when:
 
 - The project builds successfully.
-- The Runtime class exists and its lifecycle functions correctly.
-- Repository open/close succeeds.
-- All four services are registered and reachable once a repository is open.
-- Invalid state transitions are rejected with descriptive errors.
-- Unit tests covering initialization, shutdown, repository lifecycle, invalid state transitions, and service registration pass.
+- `oep open <repository>` opens a repository through Foundation Runtime.
+- `oep validate` executes Repository Validation and displays a summary.
+- `oep packages` discovers and lists packages with their current state.
+- `oep status` displays Runtime state, current repository, repository ID, loaded package count, and Foundation version.
+- Help automatically lists every registered command with Name/Syntax/Description.
+- No command constructs Repository/Search/Validation/Package services directly — all go through `FoundationRuntime`.
+- `platform/runtime/CLI_USAGE.md` exists and accurately documents the current CLI.
+- Unit tests covering command execution, Runtime integration, invalid-repository handling, help generation, and error reporting pass.
 
 ---
 
@@ -106,9 +112,9 @@ Favor maintainability.
 
 Favor simplicity.
 
-The Runtime coordinates existing subsystems; it must not reimplement Repository, Search, Validation, or Package Manager logic.
+Every command is a thin layer over `FoundationRuntime`; no command duplicates Foundation business logic.
 
-Avoid speculative implementation (no multi-repository support, no networking/UI hooks).
+Avoid speculative implementation (no shell mode, no scripting, no JSON output, no remote execution).
 
 ---
 
@@ -118,7 +124,7 @@ Before marking this task complete, verify:
 
 ✓ Build succeeds
 
-✓ Documentation updated
+✓ Documentation updated (including `platform/runtime/CLI_USAGE.md`)
 
 ✓ Project structure preserved
 
@@ -145,9 +151,9 @@ Do not begin the next task until the current task has been reviewed and accepted
 
 Built with MSVC 19.51 (Visual Studio Build Tools 18) via CMake + Ninja.
 
-- Build: succeeded, including the new `platform/runtime` module linking against `oep_repository`, `oep_search`, `oep_validation`, and `oep_packages`
-- `oep_repository_tests`, `oep_engineering_object_tests`, `oep_relationship_tests`, `oep_graph_engine_tests`, `oep_audit_store_tests`, `oep_search_engine_tests`, `oep_repository_validator_tests`, `oep_package_manager_tests`, `oep_foundation_runtime_tests` (CTest): 9/9 suites passed
-  - Runtime suite (8 cases) covers: initialize/reinitialize, opening before initialization, the full open/close lifecycle, a missing-metadata repository failing to open without corrupting Runtime state, rejecting a second concurrent repository open, reopening a different repository after closing the first, every service and context accessor being available only while a repository is open, and shutdown being idempotent, auto-closing an open repository, and rejecting further opens afterward
-- `oep init my-workshop`: re-verified unaffected, exit code 0
+- Build: succeeded, including the `oep_cli_core` library refactor and four new commands
+- `oep_repository_tests`, `oep_engineering_object_tests`, `oep_relationship_tests`, `oep_graph_engine_tests`, `oep_audit_store_tests`, `oep_search_engine_tests`, `oep_repository_validator_tests`, `oep_package_manager_tests`, `oep_foundation_runtime_tests`, `oep_cli_commands_tests` (CTest): 10/10 suites passed
+- Manual smoke test: `oep init`, `oep status`, `oep open`, `oep validate`, `oep packages`, `oep --help` all run correctly against a real generated repository; `oep validate ./does-not-exist` fails with a descriptive, non-stack-trace error and exit code 1
+- `platform/runtime/CLI_USAGE.md`: created, covers purpose, build, running, every command, example sessions with real captured output, repository layout, limitations, and troubleshooting
 
-Task 000011 is complete pending formal acceptance.
+Task 000012 is complete pending formal acceptance.

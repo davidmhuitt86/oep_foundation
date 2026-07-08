@@ -2,7 +2,7 @@
 # CURRENT_SPRINT.md
 ## Open Engineering Platform (OEP)
 
-Sprint: 011
+Sprint: 012
 
 Status: Active
 
@@ -10,25 +10,25 @@ Status: Active
 
 # Sprint Name
 
-Foundation Runtime
+CLI Command Framework Expansion
 
 ---
 
 # Sprint Objective
 
-Implement the Foundation Runtime per OEP-SPEC-011-FOUNDATION_RUNTIME: a `FoundationRuntime` that coordinates Repository, Search, Validation, and Package Manager behind a single lifecycle interface.
+Implement the CLI Command Framework Expansion per OEP-SPEC-012-CLI_COMMAND_FRAMEWORK: expand `oep` into the primary developer interface for Foundation via `open`/`validate`/`packages`/`status`, all backed exclusively by `FoundationRuntime`.
 
-The goal is not to reimplement any subsystem's logic.
+The goal is not to build an interactive shell, a scripting layer, or structured output.
 
-The goal is to give applications one entry point and a deterministic lifecycle, while subsystem ownership stays exactly where it already is.
+The goal is for the CLI to be a thin presentation layer over Foundation — no command duplicates Foundation business logic.
 
 ---
 
 # Primary Deliverable
 
-`FoundationRuntime`
+Four new commands + `platform/runtime/CLI_USAGE.md`
 
-Fills in `platform/runtime` — previously a scaffolded, empty module — with `initialize`/`open_repository`/`close_repository`/`shutdown` and service accessors.
+`platform/cli` is refactored into a library (`oep_cli_core`) plus a thin executable, so commands can be unit-tested directly.
 
 ---
 
@@ -36,10 +36,11 @@ Fills in `platform/runtime` — previously a scaffolded, empty module — with `
 
 This sprint includes:
 
-- `platform/runtime` module
-- `RuntimeState` and deterministic lifecycle transitions
-- Repository loading and service registration (Repository, Search, Validation, Package Manager)
-- Current Repository / Current Metadata / Current Package Set accessors
+- `oep_cli_core` library refactor
+- `open`/`validate`/`packages`/`status` commands
+- Extended help system (Name/Syntax/Description)
+- `platform/runtime/CLI_USAGE.md`
+- Consolidating the duplicated Foundation version string into one constant
 - Unit tests
 - Documentation updates
 
@@ -49,14 +50,13 @@ This sprint includes:
 
 The following items are explicitly excluded from this sprint:
 
-- User interface behavior
-- Networking
-- Cloud synchronization
-- AI services
-- Multiple concurrent repositories
-- Wiring the repository/objects|relationships|audit convention into `oep init`
+- Interactive shell mode
+- Scripting language support
+- Remote execution
+- Studio user interfaces
+- Structured/JSON command output
+- Detailed per-command help beyond Name/Syntax/Description
 - SDK
-- Studios
 - Exchange
 - Authentication
 - Plugin System
@@ -71,11 +71,11 @@ If implementation of these items appears necessary, document the dependency and 
 This sprint is complete when:
 
 - The project builds successfully.
-- Runtime lifecycle functions correctly.
-- Repository open/close succeeds.
-- Services are registered and reachable once a repository is open.
-- Invalid state transitions are rejected with descriptive errors.
-- Unit tests covering initialization, shutdown, repository lifecycle, invalid state transitions, and service registration pass.
+- `oep open`, `oep validate`, `oep packages`, and `oep status` all function correctly through Foundation Runtime.
+- Help lists every registered command with Name/Syntax/Description.
+- No command constructs Repository/Search/Validation/Package services directly.
+- `platform/runtime/CLI_USAGE.md` exists and is accurate.
+- Unit tests covering command execution, Runtime integration, invalid-repository handling, help generation, and error reporting pass.
 - Documentation is updated.
 
 ---
@@ -230,3 +230,9 @@ Added a new `platform/packages` module (no pre-scaffolded placeholder existed fo
 # Task 000011 — Verified Complete
 
 Filled in `platform/runtime` (previously a scaffolded, empty module) with `FoundationRuntime`, per OEP-SPEC-011-FOUNDATION_RUNTIME: `RuntimeState` (Uninitialized/Initialized/RepositoryOpen/RepositoryClosed/Shutdown), deterministic `initialize`/`open_repository`/`close_repository`/`shutdown` transitions, Repository Context accessors (current repository/metadata/package set), and a Service Registry exposing `ObjectStore`/`RelationshipStore`/`AuditStore`/`SearchEngine`/`RepositoryValidator`/`PackageManager` — all constructed and coordinated, none reimplemented. `open_repository` establishes, for the first time, where Engineering Objects/Relationships/Audit Events live within an opened repository (`repository/objects`, `repository/relationships`, `repository/audit`); this is deliberately not wired into `oep init` in this task. Built with MSVC 19.51 via CMake/Ninja; `oep_foundation_runtime_tests` (8 cases: initialize/reinitialize, open-before-initialize rejection, full open/close lifecycle, missing-metadata rejection leaving state unchanged, rejecting a second concurrent open while preserving the first as current, reopening a different repository after close, all six services and all three context accessors being available only while a repository is open, and shutdown idempotency/auto-close/post-shutdown rejection) passed via CTest alongside the existing eight suites (9/9 suites). `oep init` re-verified unaffected. Sprint 011 acceptance criteria are satisfied.
+
+---
+
+# Task 000012 — Verified Complete
+
+Refactored `platform/cli` into a static library (`oep_cli_core`) plus a thin executable, so command logic is directly unit-testable without spawning the built binary as a subprocess. Added `open`/`validate`/`packages`/`status`, each obtaining services exclusively through `FoundationRuntime` (initialize → open_repository → do the work → shutdown), per OEP-SPEC-012-CLI_COMMAND_FRAMEWORK. Extended `Command` with a `usage()` method and `HelpCommand` to print Name/Syntax/Description for every registered command. Consolidated the Foundation version string — previously duplicated between `VersionCommand` and the Foundation Generator — into one `oep::cli::kFoundationVersion` constant, now also passed to every `FoundationRuntime` a command constructs. Wrote `platform/runtime/CLI_USAGE.md` per the spec's Definition-of-Done requirement. Built with MSVC 19.51 via CMake/Ninja; `oep_cli_commands_tests` (9 cases: open succeeding/failing/reporting a descriptive non-crash-looking error, validate reporting Healthy and failing gracefully for a missing repository, packages reporting none discovered, status reporting a fully-populated open-repository summary and a graceful no-repository summary, and help listing every command with syntax and description) passed via CTest alongside the existing nine suites (10/10 suites). Manually smoke-tested every new command plus an invalid-repository case. `oep init` re-verified unaffected. Sprint 012 acceptance criteria are satisfied.

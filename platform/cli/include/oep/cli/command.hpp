@@ -15,6 +15,11 @@ public:
     virtual std::string name() const = 0;
     virtual std::string description() const = 0;
     virtual int execute(const std::vector<std::string>& args) const = 0;
+
+    // Full invocation syntax shown by `oep --help`, e.g. "oep open <repository>".
+    // Commands that take arguments should override this; the default is
+    // just the bare command name.
+    virtual std::string usage() const { return "oep " + name(); }
 };
 
 } // namespace oep::cli

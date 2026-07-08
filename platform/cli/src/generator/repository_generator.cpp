@@ -6,12 +6,12 @@
 #include "oep/repository/metadata.hpp"
 #include "oep/repository/timestamp.hpp"
 #include "oep/repository/uuid.hpp"
+#include "foundation_version.hpp"
 
 namespace oep::cli::generator {
 
 namespace {
 
-constexpr const char* kFoundationVersion = "0.1.0";
 constexpr const char* kTemplateVersion = "1.0";
 
 void write_file(const std::filesystem::path& path, const std::string& contents) {

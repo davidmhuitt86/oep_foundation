@@ -195,7 +195,7 @@ In Progress
 
 CLI
 
-Complete (v0.1.0 — `oep --help`, `oep version`)
+Complete (v0.1.0 — `version`/`init`/`open`/`validate`/`packages`/`status`/`help`, per OEP-SPEC-012; Runtime-backed, no session persistence across invocations)
 
 Foundation Generator
 
