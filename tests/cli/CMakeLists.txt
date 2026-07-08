@@ -1,3 +1,7 @@
 add_executable(oep_cli_commands_tests cli_commands_tests.cpp)
 target_link_libraries(oep_cli_commands_tests PRIVATE oep_cli_core)
 add_test(NAME oep_cli_commands_tests COMMAND oep_cli_commands_tests)
+
+add_executable(oep_object_command_tests object_command_tests.cpp)
+target_link_libraries(oep_object_command_tests PRIVATE oep_cli_core)
+add_test(NAME oep_object_command_tests COMMAND oep_object_command_tests)

@@ -4,6 +4,7 @@ add_library(oep_cli_core STATIC
     src/command_registry.cpp
     src/commands/help_command.cpp
     src/commands/init_command.cpp
+    src/commands/object_command.cpp
     src/commands/open_command.cpp
     src/commands/packages_command.cpp
     src/commands/status_command.cpp

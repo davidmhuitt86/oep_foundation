@@ -2,7 +2,7 @@
 # TASK.md
 ## Open Engineering Platform (OEP)
 
-Task ID: 000012
+Task ID: 000013
 
 Status: Complete
 
@@ -10,21 +10,19 @@ Status: Complete
 
 # Current Task
 
-Implement the CLI Command Framework Expansion per OEP-SPEC-012-CLI_COMMAND_FRAMEWORK.
+Implement Engineering Object CLI Commands per OEP-SPEC-013-ENGINEERING_OBJECT_COMMANDS.
 
-This expands `oep` from a bootstrap utility into a thin, Runtime-backed developer interface: `oep open`, `oep validate`, `oep packages`, `oep status`, a richer help system, and `platform/runtime/CLI_USAGE.md`.
+This delivers `oep object create|list|show|delete`, making the CLI the first engineering-authoring client for OEP, backed exclusively by Foundation Runtime and the existing `ObjectStore`.
 
 ---
 
 # Context
 
-TASK-000011 (Foundation Runtime) is complete and accepted.
+TASK-000012 (CLI Command Framework Expansion) is complete and accepted.
 
-OEP-SPEC-012-CLI_COMMAND_FRAMEWORK.md defines the four new commands, requires every command needing repository access to go through `FoundationRuntime` rather than constructing Repository services directly, requires Name/Syntax/Description in the help system, and requires `platform/runtime/CLI_USAGE.md` as part of the Definition of Done.
+OEP-SPEC-013-ENGINEERING_OBJECT_COMMANDS.md defines the four subcommands, required fields for creation, required display fields for listing/inspection, and requires that deletion automatically generate an Audit Event (already true of `ObjectStore::remove`, wired since Sprint 008 — no new audit logic is needed here). Object editing, binary asset import, relationship management, and diagram editing are explicitly deferred.
 
-To make commands unit-testable without spawning the built executable as a subprocess, `platform/cli` is refactored so command logic lives in a static library (`oep_cli_core`) that both the `oep` executable and the test suite link against; `main.cpp` becomes a thin wrapper.
-
-The Foundation version string ("0.1.0") was previously duplicated between `VersionCommand` and the Foundation Generator; consolidated into one `oep::cli::kFoundationVersion` constant, now also passed to `FoundationRuntime`.
+Unlike `validate`/`packages`/`status` (which take an optional positional repository path), the spec's literal syntax for `object show <object-id>`/`object delete <object-id>` already uses the one positional slot for the object ID. Repository selection for all four `object` subcommands is via an optional `--repository <path>` flag, defaulting to the current working directory — consistent in spirit with the existing commands' default-to-cwd behavior, expressed as a flag instead of a positional argument since the object ID already occupies that position for `show`/`delete`.
 
 ---
 
@@ -34,31 +32,49 @@ Complete the following tasks only.
 
 ## Objective 1
 
-Refactor `platform/cli` into `oep_cli_core` (library) + a thin `oep` executable, without changing existing command behavior.
+Add `ObjectCommand` (registered as `object`) to `platform/cli`, dispatching to `create`/`list`/`show`/`delete` subcommands.
 
 ---
 
 ## Objective 2
 
-Implement `oep open <repository>`, `oep validate [repository]`, `oep packages [repository]`, `oep status [repository]`, each obtaining services exclusively through `FoundationRuntime` (initialize → open_repository → do the command's work → shutdown). `validate`/`packages`/`status` default to the current working directory when no repository path is given.
+`create` accepts `--type`, `--name`, `--description`, `--author`, `--tags` (comma-separated) and an optional `--repository`; `--type` and `--name` are required. Object IDs are generated automatically by `ObjectStore::create`.
 
 ---
 
 ## Objective 3
 
-Extend the `Command` interface with a `usage()` method (defaulting to `"oep " + name()`, overridden where a command takes arguments) and update `HelpCommand` to print Name, Syntax, and Description for every registered command.
+`list` displays Object ID, Object Type, Name, and Version for every object, sorted by Object ID for deterministic output.
 
 ---
 
 ## Objective 4
 
-Write `platform/runtime/CLI_USAGE.md`: purpose, build prerequisites/instructions, running the CLI, every implemented command, example sessions with expected output, the repository layout Foundation expects, current limitations, and troubleshooting tips.
+`show <object-id>` displays every field: Object ID, Object Type, Name, Description, Author, Tags, Version, Creation Timestamp, Last Modified Timestamp.
 
 ---
 
 ## Objective 5
 
-Add unit tests (linking `oep_cli_core` directly, no subprocess spawning) verifying: each new command's execution against a real repository, Runtime integration (services obtained only via `FoundationRuntime`), invalid-repository handling, help generation listing all commands, and descriptive (non-crashing, non-stack-trace) error reporting.
+`delete <object-id>` removes the object through `ObjectStore::remove` (which already automatically records an `ObjectDeleted` Audit Event).
+
+---
+
+## Objective 6
+
+Register `ObjectCommand` so Help lists it (and its subcommands' existence is discoverable via its own usage/description) consistently with existing commands.
+
+---
+
+## Objective 7
+
+Update `platform/runtime/CLI_USAGE.md` with object command syntax, example workflows, expected output, and current limitations.
+
+---
+
+## Objective 8
+
+Add unit tests validating creation, listing, inspection, deletion, invalid/nonexistent object IDs, and that all four subcommands operate exclusively through Foundation Runtime.
 
 ---
 
@@ -66,13 +82,13 @@ Add unit tests (linking `oep_cli_core` directly, no subprocess spawning) verifyi
 
 Do not implement:
 
-- Interactive shell mode
-- Scripting language support
-- Remote execution
-- Studio user interfaces
-- Structured/JSON command output
-- Detailed per-command help beyond Name/Syntax/Description
-- Runtime, SDK, Exchange, Authentication, Plugin system, GUI beyond what's already implemented
+- Object editing (updating an existing object's fields via CLI)
+- Binary asset import
+- Relationship management commands
+- Diagram editing
+- Filtering/sorting options for `list` beyond deterministic ID order
+- Soft deletion
+- Runtime, SDK, Studios, Exchange, Networking, Authentication, Plugin system, GUI
 
 These systems belong to future tasks.
 
@@ -80,10 +96,8 @@ These systems belong to future tasks.
 
 # Deliverables
 
-- `oep_cli_core` library + thin `oep` executable
-- `open`/`validate`/`packages`/`status` commands
-- Extended help system (Name/Syntax/Description)
-- `platform/runtime/CLI_USAGE.md`
+- `ObjectCommand` (`create`/`list`/`show`/`delete`)
+- Updated `platform/runtime/CLI_USAGE.md`
 - Unit tests
 
 ---
@@ -93,14 +107,12 @@ These systems belong to future tasks.
 This task is complete only when:
 
 - The project builds successfully.
-- `oep open <repository>` opens a repository through Foundation Runtime.
-- `oep validate` executes Repository Validation and displays a summary.
-- `oep packages` discovers and lists packages with their current state.
-- `oep status` displays Runtime state, current repository, repository ID, loaded package count, and Foundation version.
-- Help automatically lists every registered command with Name/Syntax/Description.
-- No command constructs Repository/Search/Validation/Package services directly — all go through `FoundationRuntime`.
-- `platform/runtime/CLI_USAGE.md` exists and accurately documents the current CLI.
-- Unit tests covering command execution, Runtime integration, invalid-repository handling, help generation, and error reporting pass.
+- Engineering Objects can be created, listed, shown, and deleted from the CLI.
+- Deletion automatically generates an Audit Event.
+- Help lists the `object` command.
+- No `object` subcommand constructs Repository services directly — all go through `FoundationRuntime`.
+- `CLI_USAGE.md` is updated and accurate.
+- Unit tests covering creation, listing, inspection, deletion, invalid object IDs, and Runtime integration pass.
 
 ---
 
@@ -112,9 +124,9 @@ Favor maintainability.
 
 Favor simplicity.
 
-Every command is a thin layer over `FoundationRuntime`; no command duplicates Foundation business logic.
+Every subcommand is a thin layer over `FoundationRuntime`/`ObjectStore`; no business logic is duplicated in the CLI.
 
-Avoid speculative implementation (no shell mode, no scripting, no JSON output, no remote execution).
+Avoid speculative implementation (no editing, no binary import, no relationship commands).
 
 ---
 
@@ -124,7 +136,7 @@ Before marking this task complete, verify:
 
 ✓ Build succeeds
 
-✓ Documentation updated (including `platform/runtime/CLI_USAGE.md`)
+✓ Documentation updated (`CLI_USAGE.md`)
 
 ✓ Project structure preserved
 
@@ -151,9 +163,9 @@ Do not begin the next task until the current task has been reviewed and accepted
 
 Built with MSVC 19.51 (Visual Studio Build Tools 18) via CMake + Ninja.
 
-- Build: succeeded, including the `oep_cli_core` library refactor and four new commands
-- `oep_repository_tests`, `oep_engineering_object_tests`, `oep_relationship_tests`, `oep_graph_engine_tests`, `oep_audit_store_tests`, `oep_search_engine_tests`, `oep_repository_validator_tests`, `oep_package_manager_tests`, `oep_foundation_runtime_tests`, `oep_cli_commands_tests` (CTest): 10/10 suites passed
-- Manual smoke test: `oep init`, `oep status`, `oep open`, `oep validate`, `oep packages`, `oep --help` all run correctly against a real generated repository; `oep validate ./does-not-exist` fails with a descriptive, non-stack-trace error and exit code 1
-- `platform/runtime/CLI_USAGE.md`: created, covers purpose, build, running, every command, example sessions with real captured output, repository layout, limitations, and troubleshooting
+- Build: succeeded, including the new `ObjectCommand` and its wiring into `oep_cli_core`
+- `oep_repository_tests`, `oep_engineering_object_tests`, `oep_relationship_tests`, `oep_graph_engine_tests`, `oep_audit_store_tests`, `oep_search_engine_tests`, `oep_repository_validator_tests`, `oep_package_manager_tests`, `oep_foundation_runtime_tests`, `oep_cli_commands_tests`, `oep_object_command_tests` (CTest): 11/11 suites passed
+- Manual smoke test: `oep object create/list/show/delete` run correctly against a real generated repository, including `show` failing descriptively after the object is deleted
+- `platform/runtime/CLI_USAGE.md`: updated with the object command table, `--type` enum values, a full example workflow with real captured output, and new limitations
 
-Task 000012 is complete pending formal acceptance.
+Task 000013 is complete pending formal acceptance.

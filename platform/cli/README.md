@@ -23,6 +23,7 @@ Command logic is built as a static library, `oep_cli_core` (see `CMakeLists.txt`
 - `oep validate [repository]` — run Repository Validation and report health
 - `oep packages [repository]` — list discovered packages and their state
 - `oep status [repository]` — show Runtime state, current repository, repository ID, and loaded package count
+- `oep object create|list|show|delete` — create, list, show, and delete Engineering Objects (`--repository <path>` optional, defaults to the current working directory)
 
 See [platform/runtime/CLI_USAGE.md](../runtime/CLI_USAGE.md) for build instructions, example sessions, and troubleshooting.
 

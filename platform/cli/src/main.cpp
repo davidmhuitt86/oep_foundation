@@ -6,6 +6,7 @@
 #include "oep/cli/command_registry.hpp"
 #include "commands/help_command.hpp"
 #include "commands/init_command.hpp"
+#include "commands/object_command.hpp"
 #include "commands/open_command.hpp"
 #include "commands/packages_command.hpp"
 #include "commands/status_command.hpp"
@@ -20,6 +21,7 @@ int main(int argc, char** argv) {
     registry.register_command(std::make_unique<oep::cli::commands::ValidateCommand>());
     registry.register_command(std::make_unique<oep::cli::commands::PackagesCommand>());
     registry.register_command(std::make_unique<oep::cli::commands::StatusCommand>());
+    registry.register_command(std::make_unique<oep::cli::commands::ObjectCommand>());
     registry.register_command(std::make_unique<oep::cli::commands::HelpCommand>(registry));
 
     std::vector<std::string> args(argv + 1, argv + argc);

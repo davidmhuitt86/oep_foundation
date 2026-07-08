@@ -2,7 +2,7 @@
 # CURRENT_SPRINT.md
 ## Open Engineering Platform (OEP)
 
-Sprint: 012
+Sprint: 013
 
 Status: Active
 
@@ -10,25 +10,25 @@ Status: Active
 
 # Sprint Name
 
-CLI Command Framework Expansion
+Engineering Object CLI Commands
 
 ---
 
 # Sprint Objective
 
-Implement the CLI Command Framework Expansion per OEP-SPEC-012-CLI_COMMAND_FRAMEWORK: expand `oep` into the primary developer interface for Foundation via `open`/`validate`/`packages`/`status`, all backed exclusively by `FoundationRuntime`.
+Implement Engineering Object CLI Commands per OEP-SPEC-013-ENGINEERING_OBJECT_COMMANDS: `oep object create|list|show|delete`, backed exclusively by Foundation Runtime and `ObjectStore`.
 
-The goal is not to build an interactive shell, a scripting layer, or structured output.
+The goal is not to build object editing, binary asset import, or relationship management commands.
 
-The goal is for the CLI to be a thin presentation layer over Foundation — no command duplicates Foundation business logic.
+The goal is to make the CLI the first engineering-authoring client for OEP, without duplicating any Foundation business logic.
 
 ---
 
 # Primary Deliverable
 
-Four new commands + `platform/runtime/CLI_USAGE.md`
+`ObjectCommand`
 
-`platform/cli` is refactored into a library (`oep_cli_core`) plus a thin executable, so commands can be unit-tested directly.
+A new `object` command with four subcommands, each a thin layer over `FoundationRuntime`/`ObjectStore`.
 
 ---
 
@@ -36,13 +36,9 @@ Four new commands + `platform/runtime/CLI_USAGE.md`
 
 This sprint includes:
 
-- `oep_cli_core` library refactor
-- `open`/`validate`/`packages`/`status` commands
-- Extended help system (Name/Syntax/Description)
-- `platform/runtime/CLI_USAGE.md`
-- Consolidating the duplicated Foundation version string into one constant
+- `object create`/`list`/`show`/`delete`
+- Updated `platform/runtime/CLI_USAGE.md`
 - Unit tests
-- Documentation updates
 
 ---
 
@@ -50,14 +46,17 @@ This sprint includes:
 
 The following items are explicitly excluded from this sprint:
 
-- Interactive shell mode
-- Scripting language support
-- Remote execution
-- Studio user interfaces
-- Structured/JSON command output
-- Detailed per-command help beyond Name/Syntax/Description
+- Object editing
+- Binary asset import
+- Relationship management commands
+- Diagram editing
+- List filtering/sorting beyond deterministic ID order
+- Soft deletion
+- Runtime
 - SDK
+- Studios
 - Exchange
+- Networking
 - Authentication
 - Plugin System
 - GUI
@@ -71,11 +70,12 @@ If implementation of these items appears necessary, document the dependency and 
 This sprint is complete when:
 
 - The project builds successfully.
-- `oep open`, `oep validate`, `oep packages`, and `oep status` all function correctly through Foundation Runtime.
-- Help lists every registered command with Name/Syntax/Description.
-- No command constructs Repository/Search/Validation/Package services directly.
-- `platform/runtime/CLI_USAGE.md` exists and is accurate.
-- Unit tests covering command execution, Runtime integration, invalid-repository handling, help generation, and error reporting pass.
+- Engineering Objects can be created, listed, shown, and deleted from the CLI.
+- Deletion automatically generates an Audit Event.
+- Help lists the `object` command.
+- No subcommand constructs Repository services directly.
+- `CLI_USAGE.md` is updated.
+- Unit tests covering creation, listing, inspection, deletion, invalid object IDs, and Runtime integration pass.
 - Documentation is updated.
 
 ---
@@ -236,3 +236,9 @@ Filled in `platform/runtime` (previously a scaffolded, empty module) with `Found
 # Task 000012 — Verified Complete
 
 Refactored `platform/cli` into a static library (`oep_cli_core`) plus a thin executable, so command logic is directly unit-testable without spawning the built binary as a subprocess. Added `open`/`validate`/`packages`/`status`, each obtaining services exclusively through `FoundationRuntime` (initialize → open_repository → do the work → shutdown), per OEP-SPEC-012-CLI_COMMAND_FRAMEWORK. Extended `Command` with a `usage()` method and `HelpCommand` to print Name/Syntax/Description for every registered command. Consolidated the Foundation version string — previously duplicated between `VersionCommand` and the Foundation Generator — into one `oep::cli::kFoundationVersion` constant, now also passed to every `FoundationRuntime` a command constructs. Wrote `platform/runtime/CLI_USAGE.md` per the spec's Definition-of-Done requirement. Built with MSVC 19.51 via CMake/Ninja; `oep_cli_commands_tests` (9 cases: open succeeding/failing/reporting a descriptive non-crash-looking error, validate reporting Healthy and failing gracefully for a missing repository, packages reporting none discovered, status reporting a fully-populated open-repository summary and a graceful no-repository summary, and help listing every command with syntax and description) passed via CTest alongside the existing nine suites (10/10 suites). Manually smoke-tested every new command plus an invalid-repository case. `oep init` re-verified unaffected. Sprint 012 acceptance criteria are satisfied.
+
+---
+
+# Task 000013 — Verified Complete
+
+Added `oep object create|list|show|delete` to `platform/cli`, per OEP-SPEC-013-ENGINEERING_OBJECT_COMMANDS, each subcommand a thin layer over `FoundationRuntime`/`ObjectStore` with no duplicated business logic. `create` accepts `--type`/`--name` (required) plus `--description`/`--author`/`--tags`; `list` prints Object ID/Type/Name/Version sorted by ID for determinism; `show` prints every field including both timestamps; `delete` removes through the existing `ObjectStore::remove`, which already auto-records an `ObjectDeleted` Audit Event (no new audit wiring needed — confirmed by a dedicated test reading the event back out of the `AuditStore`). Repository selection uses an optional `--repository <path>` flag (defaulting to cwd) rather than a positional argument, since `show`/`delete` already use their one positional slot for the object ID. Updated `platform/runtime/CLI_USAGE.md` with the new command table, example workflow, and limitations, per the spec's Definition-of-Done requirement. Built with MSVC 19.51 via CMake/Ninja; `oep_object_command_tests` (7 cases: missing required create fields, an unrecognized object type, a full create→list→show→delete→show-after-delete lifecycle, the automatic audit event on delete, show failing for a nonexistent ID, list reporting none for an empty repository, and an unknown subcommand being rejected) passed via CTest alongside the existing ten suites (11/11 suites). Manually smoke-tested the full lifecycle against a real generated repository. `oep init` re-verified unaffected. Sprint 013 acceptance criteria are satisfied.

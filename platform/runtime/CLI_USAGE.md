@@ -55,9 +55,21 @@ Running `oep` with no arguments, or with `--help`/`-h`, shows the help listing.
 | validate | `oep validate [repository]` | Validate repository integrity and report health |
 | packages | `oep packages [repository]` | List discovered packages and their state |
 | status | `oep status [repository]` | Display Foundation Runtime status and repository information |
+| object | `oep object <create\|list\|show\|delete> [arguments] [--repository <path>]` | Create, list, show, and delete Engineering Objects |
 | help | `oep help` | Display available commands |
 
-`validate`, `packages`, and `status` default to the current working directory when no repository path is given. `open` and `init` require an explicit argument.
+`validate`, `packages`, and `status` default to the current working directory when no repository path is given. `open` and `init` require an explicit argument. `object` subcommands default to the current working directory unless `--repository <path>` is given — a flag rather than a positional argument, since `object show`/`object delete` already use the one positional slot for the object ID.
+
+### Object commands
+
+| Subcommand | Syntax | Description |
+|---|---|---|
+| create | `oep object create --type <type> --name <name> [--description <text>] [--author <name>] [--tags a,b,c] [--repository <path>]` | Create a new Engineering Object |
+| list | `oep object list [--repository <path>]` | List every object (Object ID, Type, Name, Version), sorted by Object ID |
+| show | `oep object show <object-id> [--repository <path>]` | Display every field of one object |
+| delete | `oep object delete <object-id> [--repository <path>]` | Delete an object (automatically records an `ObjectDeleted` Audit Event) |
+
+`--type` must be one of: `Document`, `Diagram`, `Component`, `Procedure`, `Project`, `Image`. Object IDs are generated automatically by `create` — they are never chosen by the caller.
 
 ---
 
@@ -90,6 +102,38 @@ No packages discovered.
 $ oep open my-workshop
 Opened repository 'my-workshop' at my-workshop
 ```
+
+### Creating and managing Engineering Objects
+
+```text
+$ oep object create --type Component --name "Ignition Coil" --description "Generates spark" --author "Jane" --tags electrical,ignition
+Created object '044ba21d-85b2-4502-a5ea-3787fec41367' (Component) 'Ignition Coil'
+
+$ oep object list
+044ba21d-85b2-4502-a5ea-3787fec41367	Component	Ignition Coil	1.0.0
+
+$ oep object show 044ba21d-85b2-4502-a5ea-3787fec41367
+Object ID:        044ba21d-85b2-4502-a5ea-3787fec41367
+Object Type:      Component
+Name:             Ignition Coil
+Description:      Generates spark
+Author:           Jane
+Tags:             electrical, ignition
+Version:          1.0.0
+Created:          2026-07-08T15:06:52.762Z
+Last Modified:    2026-07-08T15:06:52.762Z
+
+$ oep object delete 044ba21d-85b2-4502-a5ea-3787fec41367
+Deleted object '044ba21d-85b2-4502-a5ea-3787fec41367'
+
+$ oep object list
+No objects found.
+
+$ oep object show 044ba21d-85b2-4502-a5ea-3787fec41367
+oep: could not show object: no object with id '044ba21d-85b2-4502-a5ea-3787fec41367'
+```
+
+Every `object` subcommand runs against the repository rooted at the current working directory by default; pass `--repository <path>` to target a different one.
 
 ### An invalid or missing repository
 
@@ -148,6 +192,8 @@ Packages are discovered under the repository's top-level `packages/` directory; 
 - No interactive shell, scripting support, or remote execution.
 - `oep init` does not yet populate `repository/objects`, `repository/relationships`, or `repository/audit` — those directories are created on demand by the Runtime-backed commands the first time they're needed.
 - Package installation, updates, and dependency resolution are not implemented; `oep packages` only discovers and reports what's already present.
+- `oep object` supports create/list/show/delete only — there is no way to edit an existing object's fields from the CLI, import binary assets, or manage Relationships yet.
+- `oep object list` always sorts by Object ID; there is no filtering or alternate sort order yet.
 
 ---
 
