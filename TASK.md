@@ -2,7 +2,7 @@
 # TASK.md
 ## Open Engineering Platform (OEP)
 
-Task ID: 000010
+Task ID: 000011
 
 Status: Complete
 
@@ -10,21 +10,21 @@ Status: Complete
 
 # Current Task
 
-Implement the Package System Foundation per OEP-SPEC-010-PACKAGE_SYSTEM.
+Implement the Foundation Runtime per OEP-SPEC-011-FOUNDATION_RUNTIME.
 
-This delivers a `PackageManifest` model and a `PackageManager` capable of discovering, loading, and validating packages under a repository's `packages/` directory.
+This delivers a `FoundationRuntime` class that coordinates the existing Repository, Search, Validation, and Package Manager subsystems behind a single lifecycle interface, without reimplementing any of their logic.
 
 ---
 
 # Context
 
-TASK-000009 (Repository Integrity Validation) is complete and accepted.
+TASK-000010 (Package System Foundation) is complete and accepted.
 
-OEP-SPEC-010-PACKAGE_SYSTEM.md defines package identity/metadata, the five initial package types, the manifest (`package.json`) requirement, the `DiscoverPackages`/`LoadPackage`/`ListPackages` interface, validation rules, and the Loaded/Invalid/Disabled package states. Package installation, an online registry, updates, and dependencies are explicitly deferred to future specifications.
+OEP-SPEC-011-FOUNDATION_RUNTIME.md defines the five runtime states, the Initialize/OpenRepository/CloseRepository/Shutdown lifecycle, the service registry (Repository, Search, Validation, Package Manager), and the guards the Runtime must enforce (no concurrent repositories, no service access before initialization or after shutdown).
 
-No `platform/packages` module is pre-scaffolded in the frozen architecture (unlike Search and Validation, which had empty placeholders). This task adds it as a new module, since the spec describes a distinct Foundation subsystem ("Foundation shall expose a Package Manager") rather than a capability of an existing one.
+`platform/runtime` already exists as a scaffolded, empty module per the frozen architecture — this task specifies and fills it in for the first time, the same pattern used for `platform/search` and `platform/validation`.
 
-While implementing, promoted `platform/repository`'s internal JSON parser (`src/json_value.hpp`) to a public header (`include/oep/repository/json_value.hpp`) so `platform/packages` can parse `package.json` without a second, duplicate JSON implementation.
+Scope note: opening a repository requires deciding where, within a generated repository's `repository/` directory, Engineering Objects, Relationships, and Audit Events actually live on disk — a convention no prior sprint established (`ObjectStore`/`RelationshipStore`/`AuditStore` have only ever been exercised against arbitrary test paths). This task establishes that convention (`repository/objects/`, `repository/relationships/`, `repository/audit/`) as part of `FoundationRuntime::open_repository`. It does not wire this into `oep init`/the Foundation Generator — that remains a separate, future integration decision.
 
 ---
 
@@ -34,31 +34,31 @@ Complete the following tasks only.
 
 ## Objective 1
 
-Add `PackageManifest`/`PackageType` to `platform/packages`: `packageId`, `packageName`, `packageVersion`, `packageType`, `author`, `organization`, `description`, `tags`, `foundationVersion`, `createdUtc`, plus the five initial package types (EngineeringContent, Studio, SDK, Extension, Theme).
+Add `RuntimeState` (Uninitialized, Initialized, RepositoryOpen, RepositoryClosed, Shutdown) and `FoundationRuntime` to `platform/runtime`.
 
 ---
 
 ## Objective 2
 
-Implement validation: required fields, UUIDv4 packageId, semantic-version packageVersion/foundationVersion, valid packageType.
+Implement the lifecycle: `initialize()`, `open_repository(path)`, `close_repository()`, `shutdown()`, with deterministic, descriptive-error-producing state transitions per the state diagram implied by the spec.
 
 ---
 
 ## Objective 3
 
-Implement `PackageManager`: `discover_packages` (find candidate package directories under `packages/`, deterministically), `load_package` (load and validate one package by directory name), `list_packages` (discover + load every candidate). Foundation version compatibility is checked against a version supplied to `PackageManager`, not inferred or hardcoded, since nothing in the codebase currently owns "the current Foundation version" as a canonical constant.
+`open_repository` loads `repository.json` via the existing metadata loader, then constructs and registers `ObjectStore`, `RelationshipStore`, `AuditStore`, `SearchEngine` (indexed), `RepositoryValidator`, and `PackageManager` for that repository — reusing each subsystem exactly as it already exists, adding no new logic to any of them.
 
 ---
 
 ## Objective 4
 
-Package state (Loaded/Invalid/Disabled) is reported per discovered package. A package directory containing a `.disabled` marker file is Disabled; otherwise a package with a missing/malformed/incompatible manifest is Invalid; otherwise Loaded. An invalid package never prevents other valid packages from being discovered or loaded.
+Expose Current Repository, Current Metadata, and Current Package Set, plus accessors for each registered service, all of which are only available while a repository is open (nullptr/failure otherwise — including before initialization and after shutdown or close).
 
 ---
 
 ## Objective 5
 
-Add unit tests validating discovery, validation, loading, duplicate package IDs, invalid manifests, and unsupported Foundation versions.
+Add unit tests validating initialization, shutdown (including idempotency and auto-closing an open repository), repository open/close lifecycle, invalid state transitions (opening before initializing, opening twice, accessing services before open or after close/shutdown), and that all four services are actually registered and usable once a repository is open.
 
 ---
 
@@ -66,11 +66,13 @@ Add unit tests validating discovery, validation, loading, duplicate package IDs,
 
 Do not implement:
 
-- Package installation
-- Online package registry
-- Package updates
-- Package dependencies
-- Runtime, SDK, Studios, Exchange, Networking, Authentication, Plugin system, GUI
+- User interface behavior
+- Networking
+- Cloud synchronization
+- AI services
+- Multiple concurrent repositories
+- Wiring the `repository/objects|relationships|audit` convention into `oep init`
+- SDK, Studios, Exchange, Authentication, Plugin system, GUI
 
 These systems belong to future tasks.
 
@@ -78,7 +80,7 @@ These systems belong to future tasks.
 
 # Deliverables
 
-- `platform/packages` module (`PackageManifest`, `PackageManager`, package state)
+- `platform/runtime` module (`FoundationRuntime`, `RuntimeState`)
 - Unit tests
 
 ---
@@ -88,11 +90,11 @@ These systems belong to future tasks.
 This task is complete only when:
 
 - The project builds successfully.
-- Package discovery succeeds.
-- Valid packages load.
-- Invalid packages are rejected without blocking valid ones.
-- Package manifests are validated.
-- Unit tests covering discovery, validation, loading, duplicate package IDs, invalid manifests, and unsupported Foundation versions pass.
+- The Runtime class exists and its lifecycle functions correctly.
+- Repository open/close succeeds.
+- All four services are registered and reachable once a repository is open.
+- Invalid state transitions are rejected with descriptive errors.
+- Unit tests covering initialization, shutdown, repository lifecycle, invalid state transitions, and service registration pass.
 
 ---
 
@@ -104,9 +106,9 @@ Favor maintainability.
 
 Favor simplicity.
 
-No external JSON library dependency — reuse `platform/repository`'s JSON parser rather than writing a second one.
+The Runtime coordinates existing subsystems; it must not reimplement Repository, Search, Validation, or Package Manager logic.
 
-Avoid speculative implementation (no installation, registry, updates, or dependency resolution).
+Avoid speculative implementation (no multi-repository support, no networking/UI hooks).
 
 ---
 
@@ -143,9 +145,9 @@ Do not begin the next task until the current task has been reviewed and accepted
 
 Built with MSVC 19.51 (Visual Studio Build Tools 18) via CMake + Ninja.
 
-- Build: succeeded, including the new `platform/packages` module and the `json_value.hpp` promotion to a public `platform/repository` header
-- `oep_repository_tests`, `oep_engineering_object_tests`, `oep_relationship_tests`, `oep_graph_engine_tests`, `oep_audit_store_tests`, `oep_search_engine_tests`, `oep_repository_validator_tests`, `oep_package_manager_tests` (CTest): 8/8 suites passed
-  - Package suite (9 cases) covers: deterministic discovery (ignoring directories without a manifest), a valid package loading successfully, a missing manifest, invalid JSON, invalid manifest fields (bad UUID, empty name), an unsupported Foundation version, a `.disabled` marker overriding an otherwise-valid manifest, duplicate packageId detection across two packages, and an invalid package not blocking a valid sibling
+- Build: succeeded, including the new `platform/runtime` module linking against `oep_repository`, `oep_search`, `oep_validation`, and `oep_packages`
+- `oep_repository_tests`, `oep_engineering_object_tests`, `oep_relationship_tests`, `oep_graph_engine_tests`, `oep_audit_store_tests`, `oep_search_engine_tests`, `oep_repository_validator_tests`, `oep_package_manager_tests`, `oep_foundation_runtime_tests` (CTest): 9/9 suites passed
+  - Runtime suite (8 cases) covers: initialize/reinitialize, opening before initialization, the full open/close lifecycle, a missing-metadata repository failing to open without corrupting Runtime state, rejecting a second concurrent repository open, reopening a different repository after closing the first, every service and context accessor being available only while a repository is open, and shutdown being idempotent, auto-closing an open repository, and rejecting further opens afterward
 - `oep init my-workshop`: re-verified unaffected, exit code 0
 
-Task 000010 is complete pending formal acceptance.
+Task 000011 is complete pending formal acceptance.

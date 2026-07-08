@@ -1,0 +1,3 @@
+add_executable(oep_foundation_runtime_tests foundation_runtime_tests.cpp)
+target_link_libraries(oep_foundation_runtime_tests PRIVATE oep_runtime)
+add_test(NAME oep_foundation_runtime_tests COMMAND oep_foundation_runtime_tests)

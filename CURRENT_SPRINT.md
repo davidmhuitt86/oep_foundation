@@ -2,7 +2,7 @@
 # CURRENT_SPRINT.md
 ## Open Engineering Platform (OEP)
 
-Sprint: 010
+Sprint: 011
 
 Status: Active
 
@@ -10,25 +10,25 @@ Status: Active
 
 # Sprint Name
 
-Package System Foundation
+Foundation Runtime
 
 ---
 
 # Sprint Objective
 
-Implement the Package System Foundation per OEP-SPEC-010-PACKAGE_SYSTEM: a `PackageManifest` model and a `PackageManager` that discovers, loads, and validates packages under a repository's `packages/` directory.
+Implement the Foundation Runtime per OEP-SPEC-011-FOUNDATION_RUNTIME: a `FoundationRuntime` that coordinates Repository, Search, Validation, and Package Manager behind a single lifecycle interface.
 
-The goal is not to implement package installation, an online registry, updates, or dependency resolution.
+The goal is not to reimplement any subsystem's logic.
 
-The goal is to establish how Foundation extends itself through packages without modifying Foundation.
+The goal is to give applications one entry point and a deterministic lifecycle, while subsystem ownership stays exactly where it already is.
 
 ---
 
 # Primary Deliverable
 
-`PackageManager`
+`FoundationRuntime`
 
-A new `platform/packages` module (no pre-scaffolded placeholder existed for it) exposing `discover_packages`, `load_package`, and `list_packages`.
+Fills in `platform/runtime` — previously a scaffolded, empty module — with `initialize`/`open_repository`/`close_repository`/`shutdown` and service accessors.
 
 ---
 
@@ -36,10 +36,10 @@ A new `platform/packages` module (no pre-scaffolded placeholder existed for it) 
 
 This sprint includes:
 
-- `platform/packages` module
-- `PackageManifest`/`PackageType` and validation
-- Package state (Loaded/Invalid/Disabled)
-- Promoting `platform/repository`'s JSON parser to a public header for reuse
+- `platform/runtime` module
+- `RuntimeState` and deterministic lifecycle transitions
+- Repository loading and service registration (Repository, Search, Validation, Package Manager)
+- Current Repository / Current Metadata / Current Package Set accessors
 - Unit tests
 - Documentation updates
 
@@ -49,19 +49,18 @@ This sprint includes:
 
 The following items are explicitly excluded from this sprint:
 
-- Package installation
-- Online package registry
-- Package updates
-- Package dependencies
-- Runtime
-- SDKs
-- Exchange
-- Studios
-- Plugin System
+- User interface behavior
 - Networking
-- Marketplace
-- Licensing
-- Hardware Integration
+- Cloud synchronization
+- AI services
+- Multiple concurrent repositories
+- Wiring the repository/objects|relationships|audit convention into `oep init`
+- SDK
+- Studios
+- Exchange
+- Authentication
+- Plugin System
+- GUI
 
 If implementation of these items appears necessary, document the dependency and continue working within the current sprint boundaries.
 
@@ -72,11 +71,11 @@ If implementation of these items appears necessary, document the dependency and 
 This sprint is complete when:
 
 - The project builds successfully.
-- Package discovery succeeds.
-- Valid packages load.
-- Invalid packages are rejected without blocking valid ones.
-- Package manifests are validated.
-- Unit tests covering discovery, validation, loading, duplicate package IDs, invalid manifests, and unsupported Foundation versions pass.
+- Runtime lifecycle functions correctly.
+- Repository open/close succeeds.
+- Services are registered and reachable once a repository is open.
+- Invalid state transitions are rejected with descriptive errors.
+- Unit tests covering initialization, shutdown, repository lifecycle, invalid state transitions, and service registration pass.
 - Documentation is updated.
 
 ---
@@ -225,3 +224,9 @@ Filled in `platform/validation` (previously a scaffolded, empty module) with `Re
 # Task 000010 — Verified Complete
 
 Added a new `platform/packages` module (no pre-scaffolded placeholder existed for it, unlike Search/Validation) with `PackageManifest`/`PackageType`, validation, and `PackageManager` (`discover_packages`/`load_package`/`list_packages`), per OEP-SPEC-010-PACKAGE_SYSTEM. Promoted `platform/repository`'s internal JSON parser (`src/json_value.hpp`) to a public header (`include/oep/repository/json_value.hpp`) so packages could parse `package.json` without a second JSON implementation. Foundation-version compatibility is checked at major.minor granularity against a version supplied to `PackageManager` by its caller, since no canonical "current Foundation version" constant exists yet. Duplicate packageId detection is implemented in `list_packages` (the only operation with visibility across sibling packages), demoting every package after the first to claim an ID to Invalid. Built with MSVC 19.51 via CMake/Ninja; `oep_package_manager_tests` (9 cases: deterministic discovery, valid load, missing/malformed/invalid-field manifests, unsupported Foundation version, `.disabled` marker handling, duplicate packageId detection, and an invalid package not blocking a valid sibling) passed via CTest alongside the existing seven suites (8/8 suites). `oep init` re-verified unaffected. Sprint 010 acceptance criteria are satisfied.
+
+---
+
+# Task 000011 — Verified Complete
+
+Filled in `platform/runtime` (previously a scaffolded, empty module) with `FoundationRuntime`, per OEP-SPEC-011-FOUNDATION_RUNTIME: `RuntimeState` (Uninitialized/Initialized/RepositoryOpen/RepositoryClosed/Shutdown), deterministic `initialize`/`open_repository`/`close_repository`/`shutdown` transitions, Repository Context accessors (current repository/metadata/package set), and a Service Registry exposing `ObjectStore`/`RelationshipStore`/`AuditStore`/`SearchEngine`/`RepositoryValidator`/`PackageManager` — all constructed and coordinated, none reimplemented. `open_repository` establishes, for the first time, where Engineering Objects/Relationships/Audit Events live within an opened repository (`repository/objects`, `repository/relationships`, `repository/audit`); this is deliberately not wired into `oep init` in this task. Built with MSVC 19.51 via CMake/Ninja; `oep_foundation_runtime_tests` (8 cases: initialize/reinitialize, open-before-initialize rejection, full open/close lifecycle, missing-metadata rejection leaving state unchanged, rejecting a second concurrent open while preserving the first as current, reopening a different repository after close, all six services and all three context accessors being available only while a repository is open, and shutdown idempotency/auto-close/post-shutdown rejection) passed via CTest alongside the existing eight suites (9/9 suites). `oep init` re-verified unaffected. Sprint 011 acceptance criteria are satisfied.

@@ -227,7 +227,7 @@ Complete (`PackageManager` — discover/load/list, Loaded/Invalid/Disabled state
 
 Runtime
 
-Not Started
+Complete (`FoundationRuntime` — lifecycle + service registry for Repository/Search/Validation/Package Manager — per OEP-SPEC-011; not yet wired into `oep init`/CLI)
 
 SDK
 
