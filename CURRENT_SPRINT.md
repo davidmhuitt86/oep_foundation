@@ -2,7 +2,7 @@
 # CURRENT_SPRINT.md
 ## Open Engineering Platform (OEP)
 
-Sprint: 006
+Sprint: 007
 
 Status: Active
 
@@ -10,25 +10,25 @@ Status: Active
 
 # Sprint Name
 
-Repository Search System
+Repository Graph Traversal
 
 ---
 
 # Sprint Objective
 
-Implement the Repository Search System per OEP-SPEC-006-REPOSITORY_SEARCH: a `SearchEngine` providing deterministic, offline, in-memory search over Engineering Objects and Relationships.
+Implement Repository Graph Traversal per OEP-SPEC-007-GRAPH_TRAVERSAL: a `GraphEngine` treating Engineering Objects as nodes and Relationships as edges, supporting neighbor discovery, BFS/DFS traversal, and path-existence detection.
 
-The goal is not to implement semantic search, AI-assisted search, or persistent/incremental indexing.
+The goal is not to implement graph visualization, AI reasoning, or shortest-path algorithms.
 
-The goal is to make repository contents discoverable, rebuilt from the stores on demand.
+The goal is to make the connections between Engineering Objects navigable, entirely in memory, rebuilt from the stores on demand.
 
 ---
 
 # Primary Deliverable
 
-`SearchEngine`
+`GraphEngine`
 
-Fills in `platform/search` — previously a scaffolded, empty module — with `build_index`, `clear_index`, `search_objects`, and `search_relationships`.
+Added to `platform/repository` alongside `ObjectStore`/`RelationshipStore`, exposing `build_graph`, `clear_graph`, `get_neighbors`, `traverse_breadth_first`, `traverse_depth_first`, and `path_exists`.
 
 ---
 
@@ -36,10 +36,10 @@ Fills in `platform/search` — previously a scaffolded, empty module — with `b
 
 This sprint includes:
 
-- `platform/search` module implementation
-- `ObjectStore::list_all` / `RelationshipStore::list_all` (enumeration support in `platform/repository`)
-- Case-insensitive, partial-match search across the fields OEP-SPEC-006 defines
-- Deterministic result ordering and scoring
+- `GraphEngine` implementation
+- Deterministic neighbor discovery, BFS, and DFS
+- Path-existence detection (no shortest path)
+- Exclusion of relationships referencing nonexistent objects
 - Unit tests
 - Documentation updates
 
@@ -49,11 +49,12 @@ This sprint includes:
 
 The following items are explicitly excluded from this sprint:
 
-- Semantic search
-- AI-assisted search
-- Registry search
-- Distributed search
-- Persistent/incremental indexing
+- Graph visualization
+- AI reasoning
+- Semantic ranking
+- Distributed graphs
+- Shortest-path algorithms
+- Persistent graph indexes
 - Runtime
 - SDKs
 - Exchange
@@ -73,10 +74,10 @@ If implementation of these items appears necessary, document the dependency and 
 This sprint is complete when:
 
 - The project builds successfully.
-- Repository indexes build successfully from an `ObjectStore`/`RelationshipStore`.
-- Engineering Objects and Relationships are both searchable.
-- Search results are deterministic.
-- Unit tests covering indexing, searching, rebuilding, and invalid-query handling pass.
+- The repository graph builds successfully.
+- Neighbor discovery, BFS traversal, and DFS traversal all succeed and are deterministic.
+- Path detection succeeds for both connected and disconnected object pairs.
+- Unit tests covering traversal, disconnected graphs, cycles, invalid objects, and deterministic ordering pass.
 - Documentation is updated.
 
 ---
@@ -201,3 +202,9 @@ Added `Relationship`, `RelationshipType`, validation, JSON serialization, and a 
 # Task 000006 — Verified Complete
 
 Filled in `platform/search` (previously a scaffolded, empty module) with `SearchEngine`: `build_index`, `clear_index`, `search_objects`, `search_relationships`, and result types with match location and score. Added `ObjectStore::list_all` and `RelationshipStore::list_all` to `platform/repository` to support index construction, and refactored `list_by_object` to reuse `list_all` rather than duplicating enumeration. Built with MSVC 19.51 via CMake/Ninja; `oep_search_engine_tests` (covering exact/partial/case-insensitive matches across name, description, author, tags, and object type for objects and relationship type/description/author for relationships, missing-index and empty-repository handling, empty-query rejection, determinism across repeated searches, and index rebuild after object removal) passed via CTest alongside the existing three suites (4/4 suites). `oep init` re-verified unaffected. Sprint 006 acceptance criteria are satisfied.
+
+---
+
+# Task 000007 — Verified Complete
+
+Added `GraphEngine` to `platform/repository` (no dedicated `platform/graph` module exists in the frozen architecture, and the spec frames this as a Repository capability): `build_graph`, `clear_graph`, `get_neighbors`, `traverse_breadth_first`, `traverse_depth_first`, `path_exists`, built from `ObjectStore`/`RelationshipStore` via their existing `list_all`. Relationships are treated as connecting their two objects bidirectionally for traversal purposes while preserving the original relationship type/ID on each edge; relationships referencing a missing object are excluded from the graph. Built with MSVC 19.51 via CMake/Ninja; `oep_graph_engine_tests` (covering neighbor discovery with relationship-type preservation, an isolated node, BFS/DFS over a 3-node cycle without infinite looping, determinism across repeated traversals, path existence for connected/disconnected/self pairs, nonexistent-object handling, graph rebuild after object removal, `clear_graph` isolation from repository state, and an empty repository) passed via CTest alongside the existing four suites (5/5 suites). `oep init` re-verified unaffected. Sprint 007 acceptance criteria are satisfied.

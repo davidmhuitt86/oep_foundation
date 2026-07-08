@@ -203,11 +203,15 @@ Complete (`oep init`, OEP-SPEC-002 Standard Repository)
 
 Repository Engine
 
-Not Started (metadata system complete; Engineering Object model + CRUD store complete; relationship model + CRUD/enumerate store complete; graph reasoning not started)
+Not Started (metadata system, Engineering Object model + CRUD store, relationship model + CRUD/enumerate store, and graph traversal complete; AI reasoning not started)
 
 Search
 
 Complete (in-memory `SearchEngine` over Engineering Objects and Relationships, per OEP-SPEC-006)
+
+Graph Traversal
+
+Complete (in-memory `GraphEngine` — neighbor discovery, BFS/DFS, path existence — per OEP-SPEC-007)
 
 Runtime
 

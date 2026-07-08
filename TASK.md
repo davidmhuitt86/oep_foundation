@@ -2,7 +2,7 @@
 # TASK.md
 ## Open Engineering Platform (OEP)
 
-Task ID: 000006
+Task ID: 000007
 
 Status: Complete
 
@@ -10,19 +10,19 @@ Status: Complete
 
 # Current Task
 
-Implement the Repository Search System per OEP-SPEC-006-REPOSITORY_SEARCH.
+Implement Repository Graph Traversal per OEP-SPEC-007-GRAPH_TRAVERSAL.
 
-This delivers a `SearchEngine` in the `platform/search` module, providing deterministic, offline, case-insensitive, partial-match search across Engineering Objects and Relationships.
+This delivers a `GraphEngine` treating Engineering Objects as nodes and Relationships as edges, supporting neighbor discovery, BFS/DFS traversal, and path-existence detection.
 
 ---
 
 # Context
 
-TASK-000005 (Engineering Object Relationship Model) is complete and accepted.
+TASK-000006 (Repository Search System) is complete and accepted.
 
-OEP-SPEC-006-REPOSITORY_SEARCH.md defines an in-memory (non-persistent) search index rebuilt on load, searchable fields, result shape, and the `BuildIndex`/`SearchObjects`/`SearchRelationships`/`ClearIndex` interface. Semantic search, AI-assisted search, and distributed search are explicitly out of scope.
+OEP-SPEC-007-GRAPH_TRAVERSAL.md defines graph construction from the Repository, the `BuildGraph`/`ClearGraph`/`GetNeighbors`/`Traverse`/`PathExists` interface, and deterministic traversal. Graph visualization, AI reasoning, semantic ranking, and distributed graphs are explicitly out of scope; shortest-path algorithms are also out of scope (path detection only reports existence).
 
-`platform/search` already exists as a scaffolded, empty module per the frozen architecture (OEP-ARCH-001) — this task specifies and fills it in for the first time.
+The spec frames this as a Repository capability ("the Repository Graph... construct the graph from the Repository") rather than a new architectural layer, and no `platform/graph` module is scaffolded in the frozen architecture. `GraphEngine` is added to `platform/repository` alongside the existing `ObjectStore`/`RelationshipStore`, consistent with that framing.
 
 ---
 
@@ -32,31 +32,37 @@ Complete the following tasks only.
 
 ## Objective 1
 
-Add enumeration support to `platform/repository`'s stores (`ObjectStore::list_all`, `RelationshipStore::list_all`) so an index can be built from everything stored in a repository. Refactor `RelationshipStore::list_by_object` to reuse this rather than duplicating the enumeration.
+Add `GraphEngine` to `platform/repository`: `build_graph`, `clear_graph`, `get_neighbors`, `traverse_breadth_first`, `traverse_depth_first`, `path_exists`.
 
 ---
 
 ## Objective 2
 
-Implement `SearchEngine` in `platform/search`: `build_index`, `clear_index`, `search_objects`, `search_relationships`.
+Build the graph from an `ObjectStore` (nodes) and `RelationshipStore` (edges) using their existing `list_all` enumeration. Relationships referencing an object that no longer exists are excluded from the graph (invalid graph elements do not participate in traversal).
 
 ---
 
 ## Objective 3
 
-Support case-insensitive, partial-match search over: Engineering Objects (name, description, author, tags, object type) and Relationships (relationship type, description, author). Results are deterministic and repeatable for the same repository state and query.
+Neighbor discovery returns every directly connected object along with the connecting relationship's type and ID, in deterministic order.
 
 ---
 
 ## Objective 4
 
-Each object result includes object ID, object type, display name, match location, and match score. Each relationship result additionally identifies source object, target object, and relationship type.
+BFS and DFS traversal are deterministic for a given graph state and starting object.
 
 ---
 
 ## Objective 5
 
-Add unit tests validating indexing, searching (including case-insensitivity, partial match, and each searchable field), rebuilding the index, empty-repository behavior, and invalid-query handling.
+Path existence detection reports only whether a path exists between two objects (no shortest-path computation).
+
+---
+
+## Objective 6
+
+Add unit tests validating graph construction, neighbor discovery, BFS traversal, DFS traversal, path detection (connected and disconnected), cycles, invalid/nonexistent objects, and deterministic ordering.
 
 ---
 
@@ -64,11 +70,12 @@ Add unit tests validating indexing, searching (including case-insensitivity, par
 
 Do not implement:
 
-- Semantic search
-- AI-assisted search
-- Registry search
-- Distributed search
-- Persistent/incremental indexing
+- Graph visualization
+- AI reasoning
+- Semantic ranking
+- Distributed graphs
+- Shortest-path algorithms
+- Persistent graph indexes
 - Runtime, SDK, Studios, Exchange, Networking, Authentication, Plugin system, GUI
 
 These systems belong to future tasks.
@@ -77,8 +84,7 @@ These systems belong to future tasks.
 
 # Deliverables
 
-- `platform/search` module (`SearchEngine`, result types)
-- `ObjectStore::list_all`, `RelationshipStore::list_all`
+- `GraphEngine` (`platform/repository`)
 - Unit tests
 
 ---
@@ -88,10 +94,11 @@ These systems belong to future tasks.
 This task is complete only when:
 
 - The project builds successfully.
-- Repository indexes are built successfully from an `ObjectStore`/`RelationshipStore`.
-- Engineering Objects and Relationships are both searchable per the field list above.
-- Search results are deterministic across repeated runs.
-- Unit tests covering indexing, searching, rebuilding, and invalid-query handling pass.
+- The repository graph builds successfully from an `ObjectStore`/`RelationshipStore`.
+- Neighbor discovery succeeds and preserves relationship types.
+- BFS and DFS traversal both succeed and are deterministic.
+- Path detection succeeds for both connected and disconnected object pairs.
+- Unit tests covering traversal, disconnected graphs, cycles, invalid objects, and deterministic ordering pass.
 
 ---
 
@@ -103,9 +110,9 @@ Favor maintainability.
 
 Favor simplicity.
 
-The Search Engine must remain independent of the CLI and Studios, and must never modify repository contents.
+The Graph Engine must remain independent of the CLI and Studios, must never modify repository contents, and must be maintained entirely in memory.
 
-Avoid speculative implementation (no persistence, no semantic/AI search).
+Avoid speculative implementation (no shortest-path, no persistent index, no visualization).
 
 ---
 
@@ -142,9 +149,9 @@ Do not begin the next task until the current task has been reviewed and accepted
 
 Built with MSVC 19.51 (Visual Studio Build Tools 18) via CMake + Ninja.
 
-- Build: succeeded, including new `platform/search` module and `ObjectStore`/`RelationshipStore` enumeration support
-- `oep_repository_tests`, `oep_engineering_object_tests`, `oep_relationship_tests`, `oep_search_engine_tests` (CTest): 4/4 suites passed
-  - Search suite covers: missing-index graceful handling, exact/partial/case-insensitive matches across every searchable field for both objects and relationships, relationship results identifying source/target/type, no-match queries, empty-query rejection, determinism across repeated identical searches, index rebuild dropping a removed object, `clear_index` emptying the index without touching repository contents, and an empty repository producing an empty, valid index
+- Build: succeeded, including new `GraphEngine` in `platform/repository`
+- `oep_repository_tests`, `oep_engineering_object_tests`, `oep_relationship_tests`, `oep_graph_engine_tests`, `oep_search_engine_tests` (CTest): 5/5 suites passed
+  - Graph suite covers: neighbor discovery with relationship-type preservation, an isolated node, BFS and DFS over a 3-node cycle (A-B-C-A) with no infinite loop, determinism across repeated BFS calls, path existence for a connected pair, a disconnected pair (isolated node), and a self-pair, graceful failure for nonexistent objects, graph rebuild dropping a removed object, `clear_graph` not touching repository contents, and an empty repository producing an empty, valid graph
 - `oep init my-workshop`: re-verified unaffected, exit code 0
 
-Task 000006 is complete pending formal acceptance.
+Task 000007 is complete pending formal acceptance.

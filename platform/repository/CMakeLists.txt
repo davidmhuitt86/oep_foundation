@@ -9,6 +9,7 @@ add_library(oep_repository STATIC
     src/object_store.cpp
     src/relationship.cpp
     src/relationship_store.cpp
+    src/graph_engine.cpp
 )
 
 target_include_directories(oep_repository PUBLIC include)
