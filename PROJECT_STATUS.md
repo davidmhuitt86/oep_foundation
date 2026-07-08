@@ -203,7 +203,7 @@ Complete (`oep init`, OEP-SPEC-002 Standard Repository)
 
 Repository Engine
 
-Not Started (metadata system complete; Engineering Object model + CRUD store complete; relationships not started)
+Not Started (metadata system complete; Engineering Object model + CRUD store complete; relationship model + CRUD/enumerate store complete; graph search/reasoning not started)
 
 Runtime
 

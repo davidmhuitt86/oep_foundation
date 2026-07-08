@@ -2,7 +2,7 @@
 # TASK.md
 ## Open Engineering Platform (OEP)
 
-Task ID: 000004
+Task ID: 000005
 
 Status: Complete
 
@@ -10,17 +10,17 @@ Status: Complete
 
 # Current Task
 
-Implement the Engineering Object Model per OEP-SPEC-004-ENGINEERING_OBJECT_MODEL.
+Implement the Engineering Object Relationship Model per OEP-SPEC-005-OBJECT_RELATIONSHIP_MODEL.
 
-This delivers a strongly typed `EngineeringObject`, validation, serialization, and a Create/Read/Update/Delete store, so that future subsystems operate on Engineering Objects rather than files directly.
+This delivers a strongly typed `Relationship` connecting two Engineering Objects, validation, serialization, and a Create/Read/Update/Delete/Enumerate store.
 
 ---
 
 # Context
 
-TASK-000003 (Repository Metadata System) is complete and accepted.
+TASK-000004 (Engineering Object Model) is complete and accepted.
 
-OEP-SPEC-004-ENGINEERING_OBJECT_MODEL.md defines object identity, metadata, classification, lifecycle, and validation requirements. File formats and object relationships are explicitly out of scope for this spec.
+OEP-SPEC-005-OBJECT_RELATIONSHIP_MODEL.md defines relationship identity, the six initial relationship types, directionality, validation, and store requirements. Graph search, AI reasoning, visualization, and registry synchronization are explicitly out of scope.
 
 ---
 
@@ -30,31 +30,31 @@ Complete the following tasks only.
 
 ## Objective 1
 
-Add `EngineeringObject` to `platform/repository`: `objectId`, `objectType`, `name`, `description`, `createdUtc`, `lastModifiedUtc`, `version`, `author`, `tags`, plus the six initial object types (Document, Diagram, Component, Procedure, Project, Image).
+Add `Relationship` to `platform/repository`: `relationshipId`, `sourceObjectId`, `targetObjectId`, `relationshipType`, `createdUtc`, `author`, `description`, plus the six initial relationship types (References, Contains, DependsOn, ConnectedTo, Documents, Implements).
 
 ---
 
 ## Objective 2
 
-Implement validation: required fields, UUIDv4 `objectId`, valid `objectType`, version format.
+Implement validation: both objects exist (via the Engineering Object store), relationship type is valid, source and target IDs differ, UUID format is valid for all IDs.
 
 ---
 
 ## Objective 3
 
-Implement serialization/deserialization (to/from JSON) preserving all metadata.
+Implement JSON serialization/deserialization.
 
 ---
 
 ## Objective 4
 
-Implement a Create/Read/Update/Delete object store: creation generates the object ID and timestamps; updates preserve `objectId`/`objectType`/`createdUtc` and refresh `lastModifiedUtc`; all writes are atomic; validation failures never modify repository contents.
+Implement a Create/Read/Update/Delete/Enumerate-by-object Relationship Store, independent of Studios. All writes are atomic; validation failures never modify repository contents.
 
 ---
 
 ## Objective 5
 
-Add unit tests validating object creation, loading, saving (update), and validation failures.
+Add unit tests validating relationship creation, persistence, loading, validation, enumeration, and deletion.
 
 ---
 
@@ -62,11 +62,11 @@ Add unit tests validating object creation, loading, saving (update), and validat
 
 Do not implement:
 
-- Object relationships (future specification)
-- File format standardization
+- Graph search
+- AI reasoning
+- Visualization
 - Registry synchronization
-- User interface behavior
-- Soft-delete (noted in spec as a future revision)
+- Reverse traversal helpers beyond enumerate-by-object
 - Runtime, SDK, Studios, Exchange, Networking, Authentication, Plugin system, GUI
 
 These systems belong to future tasks.
@@ -75,9 +75,9 @@ These systems belong to future tasks.
 
 # Deliverables
 
-- `EngineeringObject` model and validation
-- Object serialization/deserialization
-- CRUD object store
+- `Relationship` model and validation
+- Relationship serialization/deserialization
+- CRUD + enumerate Relationship Store
 - Unit tests
 
 ---
@@ -87,11 +87,11 @@ These systems belong to future tasks.
 This task is complete only when:
 
 - The project builds successfully.
-- `EngineeringObject` exists with strongly typed metadata.
-- UUID identity is enforced.
-- Object validation succeeds/fails correctly.
-- Serialization and deserialization round-trip successfully.
-- Unit tests covering creation, loading, saving, and validation pass.
+- Relationship model and store exist.
+- CRUD operations succeed.
+- Validation succeeds (rejects nonexistent objects, invalid type, matching source/target, malformed UUIDs).
+- Serialization round-trips successfully.
+- Unit tests covering creation, persistence, loading, validation, enumeration, and deletion pass.
 
 ---
 
@@ -105,7 +105,7 @@ Favor simplicity.
 
 No external JSON library dependency.
 
-Avoid speculative implementation (no relationships, no soft-delete yet).
+Avoid speculative implementation (no graph search, no reverse-traversal API beyond enumerate-by-object).
 
 ---
 
@@ -142,9 +142,9 @@ Do not begin the next task until the current task has been reviewed and accepted
 
 Built with MSVC 19.51 (Visual Studio Build Tools 18) via CMake + Ninja.
 
-- Build: succeeded, including a UUID/timestamp consolidation refactor (removed a duplicate UUID generator that had existed in `platform/cli`)
-- `oep_repository_tests` and `oep_engineering_object_tests` (CTest): 2/2 suites passed, 14 assertions total
-  - Engineering Object suite covers: create assigns objectId/timestamps, load round-trip, load fails for a missing object, update preserves objectId/objectType/createdUtc while refreshing lastModifiedUtc, remove deletes the object, and validation rejects a missing name / malformed objectId
-- `oep init my-workshop`: still produces a correct `repository.json` after the refactor, exit code 0
+- Build: succeeded
+- `oep_repository_tests`, `oep_engineering_object_tests`, `oep_relationship_tests` (CTest): 3/3 suites passed
+  - Relationship suite covers: create succeeds when both objects exist, create fails for a nonexistent object, create fails when source equals target, load round-trip, update preserves relationshipId/sourceObjectId/targetObjectId/relationshipType/createdUtc while applying the new description, remove deletes the relationship, list_by_object enumerates both outgoing and incoming edges, and validation rejects matching ids / a malformed UUID
+- `oep init my-workshop`: re-verified unaffected, exit code 0
 
-Task 000004 is complete pending formal acceptance.
+Task 000005 is complete pending formal acceptance.

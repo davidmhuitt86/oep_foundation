@@ -7,6 +7,8 @@ add_library(oep_repository STATIC
     src/timestamp.cpp
     src/engineering_object.cpp
     src/object_store.cpp
+    src/relationship.cpp
+    src/relationship_store.cpp
 )
 
 target_include_directories(oep_repository PUBLIC include)

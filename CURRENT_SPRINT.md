@@ -2,7 +2,7 @@
 # CURRENT_SPRINT.md
 ## Open Engineering Platform (OEP)
 
-Sprint: 004
+Sprint: 005
 
 Status: Active
 
@@ -10,25 +10,25 @@ Status: Active
 
 # Sprint Name
 
-Engineering Object Model
+Engineering Object Relationship Model
 
 ---
 
 # Sprint Objective
 
-Implement the Engineering Object Model per OEP-SPEC-004-ENGINEERING_OBJECT_MODEL: a strongly typed `EngineeringObject`, validation, serialization, and a CRUD store.
+Implement the Engineering Object Relationship Model per OEP-SPEC-005-OBJECT_RELATIONSHIP_MODEL: a strongly typed `Relationship`, validation, serialization, and a CRUD + enumerate store.
 
-The goal is not to implement object relationships, soft-delete, or a finalized on-disk file format standard.
+The goal is not to implement graph search, AI reasoning, or visualization.
 
-The goal is to establish the object model every future Foundation subsystem will operate on instead of manipulating files directly.
+The goal is to connect Engineering Objects into a navigable knowledge graph — objects as nodes, relationships as edges.
 
 ---
 
 # Primary Deliverable
 
-`EngineeringObject` + object store
+`Relationship` + Relationship Store
 
-Extends `platform/repository` with the object model and lifecycle operations (Create/Read/Update/Delete).
+Extends `platform/repository` with the relationship model and lifecycle operations (Create/Read/Update/Delete/Enumerate-by-object).
 
 ---
 
@@ -36,10 +36,10 @@ Extends `platform/repository` with the object model and lifecycle operations (Cr
 
 This sprint includes:
 
-- `EngineeringObject` model and the six initial object types
-- Validation (required fields, UUIDv4 objectId, object type, version format)
+- `Relationship` model and the six initial relationship types
+- Validation (both objects exist, valid type, source ≠ target, UUID format)
 - JSON serialization/deserialization
-- CRUD object store (atomic writes)
+- CRUD + enumerate Relationship Store (atomic writes)
 - Unit tests
 - Documentation updates
 
@@ -49,12 +49,11 @@ This sprint includes:
 
 The following items are explicitly excluded from this sprint:
 
-- Object relationships
-- File format standardization
-- Soft-delete
+- Graph search
+- AI reasoning
+- Visualization
 - Registry synchronization
-- Authentication
-- Cloud services
+- Reverse traversal beyond enumerate-by-object
 - Runtime
 - SDKs
 - Exchange
@@ -74,10 +73,11 @@ If implementation of these items appears necessary, document the dependency and 
 This sprint is complete when:
 
 - The project builds successfully.
-- `EngineeringObject` exists with strongly typed metadata and enforced UUID identity.
-- Object validation succeeds/fails correctly.
-- Serialization and deserialization round-trip successfully.
-- Unit tests covering creation, loading, saving, and validation pass.
+- `Relationship` and the Relationship Store exist.
+- CRUD operations succeed.
+- Validation rejects nonexistent objects, invalid types, matching source/target, and malformed UUIDs.
+- Serialization round-trips successfully.
+- Unit tests covering creation, persistence, loading, validation, enumeration, and deletion pass.
 - Documentation is updated.
 
 ---
@@ -190,3 +190,9 @@ The `platform/repository` metadata module (schema, loader, writer, validation, i
 # Task 000004 — Verified Complete
 
 Added `EngineeringObject`, `ObjectType`, validation, JSON serialization, and a Create/Read/Update/Delete `ObjectStore` to `platform/repository`. UUID generation/validation and UTC timestamp formatting — previously duplicated between the CLI generator and the metadata module — were consolidated into shared `oep/repository/uuid.hpp` and `oep/repository/timestamp.hpp`; the CLI's local `uuid.cpp`/`uuid.hpp` were removed. Built with MSVC 19.51 via CMake/Ninja; `oep_engineering_object_tests` (8 cases: create assigns id/timestamps, load round-trip, missing-object load failure, update preserving immutable fields and refreshing lastModifiedUtc, remove, and validation rejections) passed via CTest alongside the existing metadata tests (2/2 suites). `oep init` re-verified end-to-end after the refactor. Sprint 004 acceptance criteria are satisfied.
+
+---
+
+# Task 000005 — Verified Complete
+
+Added `Relationship`, `RelationshipType`, validation, JSON serialization, and a Create/Read/Update/Delete/Enumerate `RelationshipStore` to `platform/repository`, validated against an `ObjectStore` so relationships can only be created between Engineering Objects that actually exist. Built with MSVC 19.51 via CMake/Ninja; `oep_relationship_tests` (9 cases: create succeeds for existing objects, create fails for a missing object, create fails when source equals target, load round-trip, update preserving immutable fields, remove, enumerate-by-object in both directions, and two validation rejections) passed via CTest alongside the existing metadata and object test suites (3/3 suites). `oep init` re-verified unaffected. Sprint 005 acceptance criteria are satisfied.
