@@ -47,8 +47,10 @@ int main() {
     std::filesystem::remove_all(scratch_dir);
     std::filesystem::create_directories(scratch_dir);
 
-    const oep::repository::ObjectStore objects(scratch_dir / "objects");
-    const oep::repository::RelationshipStore relationships(scratch_dir / "relationships", objects);
+    const oep::repository::ObjectStore objects(scratch_dir / "objects",
+                                                oep::repository::AuditStore(scratch_dir / "audit"));
+    const oep::repository::RelationshipStore relationships(
+        scratch_dir / "relationships", objects, oep::repository::AuditStore(scratch_dir / "audit"));
 
     const oep::repository::LoadObjectResult coil =
         objects.create(make_object(oep::repository::ObjectType::Component, "Ignition Coil",
@@ -173,8 +175,10 @@ int main() {
     // Empty repository builds an empty, valid index.
     {
         const std::filesystem::path empty_dir = scratch_dir / "empty";
-        const oep::repository::ObjectStore empty_objects(empty_dir / "objects");
-        const oep::repository::RelationshipStore empty_relationships(empty_dir / "relationships", empty_objects);
+        const oep::repository::ObjectStore empty_objects(empty_dir / "objects",
+                                                          oep::repository::AuditStore(empty_dir / "audit"));
+        const oep::repository::RelationshipStore empty_relationships(
+            empty_dir / "relationships", empty_objects, oep::repository::AuditStore(empty_dir / "audit"));
 
         oep::search::SearchEngine empty_engine;
         empty_engine.build_index(empty_objects, empty_relationships);

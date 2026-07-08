@@ -198,8 +198,10 @@ int main() {
     std::filesystem::remove_all(scratch_dir);
     std::filesystem::create_directories(scratch_dir);
 
-    const oep::repository::ObjectStore objects(scratch_dir / "objects");
-    const oep::repository::RelationshipStore relationships(scratch_dir / "relationships", objects);
+    const oep::repository::ObjectStore objects(scratch_dir / "objects",
+                                                oep::repository::AuditStore(scratch_dir / "audit"));
+    const oep::repository::RelationshipStore relationships(
+        scratch_dir / "relationships", objects, oep::repository::AuditStore(scratch_dir / "audit"));
 
     test_create_succeeds_for_existing_objects(objects, relationships);
     test_create_fails_for_missing_object(objects, relationships);

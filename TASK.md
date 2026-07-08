@@ -2,7 +2,7 @@
 # TASK.md
 ## Open Engineering Platform (OEP)
 
-Task ID: 000007
+Task ID: 000008
 
 Status: Complete
 
@@ -10,19 +10,21 @@ Status: Complete
 
 # Current Task
 
-Implement Repository Graph Traversal per OEP-SPEC-007-GRAPH_TRAVERSAL.
+Implement the Repository Audit Log per OEP-SPEC-008-REPOSITORY_AUDIT_LOG.
 
-This delivers a `GraphEngine` treating Engineering Objects as nodes and Relationships as edges, supporting neighbor discovery, BFS/DFS traversal, and path-existence detection.
+This delivers a strongly typed `AuditEvent`, an `AuditStore`, and automatic event recording wired directly into `ObjectStore`/`RelationshipStore` so Engineering Object and Relationship lifecycle operations cannot bypass the audit trail.
 
 ---
 
 # Context
 
-TASK-000006 (Repository Search System) is complete and accepted.
+TASK-000007 (Repository Graph Traversal) is complete and accepted.
 
-OEP-SPEC-007-GRAPH_TRAVERSAL.md defines graph construction from the Repository, the `BuildGraph`/`ClearGraph`/`GetNeighbors`/`Traverse`/`PathExists` interface, and deterministic traversal. Graph visualization, AI reasoning, semantic ranking, and distributed graphs are explicitly out of scope; shortest-path algorithms are also out of scope (path detection only reports existence).
+OEP-SPEC-008-REPOSITORY_AUDIT_LOG.md defines the seven initial event types, required fields, validation, and the `RecordEvent`/`ListEvents`/`ListEventsForObject`/`Clear` interface. It requires that Foundation — not applications — creates audit events automatically whenever objects or relationships are created, updated, or deleted.
 
-The spec frames this as a Repository capability ("the Repository Graph... construct the graph from the Repository") rather than a new architectural layer, and no `platform/graph` module is scaffolded in the frozen architecture. `GraphEngine` is added to `platform/repository` alongside the existing `ObjectStore`/`RelationshipStore`, consistent with that framing.
+`AuditStore` is added to `platform/repository` alongside the existing stores, consistent with prior sprints' placement decisions (no dedicated audit module exists in the frozen architecture).
+
+Scope note: `RepositoryCreated` is implemented as a supported event type and is recordable via `AuditStore` directly, but this task does not wire it into `oep init` — OEP-SPEC-002's frozen repository structure does not specify where an audit log lives on disk within a generated repository, and deciding that convention is out of scope here. That remains open for a future task once ratified.
 
 ---
 
@@ -32,37 +34,31 @@ Complete the following tasks only.
 
 ## Objective 1
 
-Add `GraphEngine` to `platform/repository`: `build_graph`, `clear_graph`, `get_neighbors`, `traverse_breadth_first`, `traverse_depth_first`, `path_exists`.
+Add `AuditEvent`/`AuditEventType` to `platform/repository`: `eventId`, `timestampUtc`, `eventType`, `objectId`, `user`, `description`, plus the seven initial event types (RepositoryCreated, ObjectCreated, ObjectUpdated, ObjectDeleted, RelationshipCreated, RelationshipUpdated, RelationshipDeleted).
 
 ---
 
 ## Objective 2
 
-Build the graph from an `ObjectStore` (nodes) and `RelationshipStore` (edges) using their existing `list_all` enumeration. Relationships referencing an object that no longer exists are excluded from the graph (invalid graph elements do not participate in traversal).
+Implement validation: required eventId/timestampUtc, UUIDv4 format for eventId, UUIDv4 format for objectId when non-empty.
 
 ---
 
 ## Objective 3
 
-Neighbor discovery returns every directly connected object along with the connecting relationship's type and ID, in deterministic order.
+Implement `AuditStore`: `record_event`, `list_events`, `list_events_for_object`, `clear`. Atomic writes; an invalid event is never recorded; deterministic ordering.
 
 ---
 
 ## Objective 4
 
-BFS and DFS traversal are deterministic for a given graph state and starting object.
+Wire an `AuditStore` into `ObjectStore` and `RelationshipStore` so every successful create/update/delete automatically records the corresponding event. Audit recording must never cause an otherwise-successful repository operation to fail.
 
 ---
 
 ## Objective 5
 
-Path existence detection reports only whether a path exists between two objects (no shortest-path computation).
-
----
-
-## Objective 6
-
-Add unit tests validating graph construction, neighbor discovery, BFS traversal, DFS traversal, path detection (connected and disconnected), cycles, invalid/nonexistent objects, and deterministic ordering.
+Add unit tests validating event recording, storage, retrieval (all events and by object), validation rejections, `clear`, and automatic recording from object/relationship lifecycle operations.
 
 ---
 
@@ -70,12 +66,11 @@ Add unit tests validating graph construction, neighbor discovery, BFS traversal,
 
 Do not implement:
 
-- Graph visualization
-- AI reasoning
-- Semantic ranking
-- Distributed graphs
-- Shortest-path algorithms
-- Persistent graph indexes
+- Version control
+- Undo/Redo
+- Collaboration
+- Cloud synchronization
+- Wiring `RepositoryCreated` into `oep init` (no ratified on-disk location for the audit log within a generated repository yet)
 - Runtime, SDK, Studios, Exchange, Networking, Authentication, Plugin system, GUI
 
 These systems belong to future tasks.
@@ -84,7 +79,9 @@ These systems belong to future tasks.
 
 # Deliverables
 
-- `GraphEngine` (`platform/repository`)
+- `AuditEvent`/`AuditEventType` and validation
+- `AuditStore`
+- `ObjectStore`/`RelationshipStore` integration (automatic recording)
 - Unit tests
 
 ---
@@ -94,11 +91,10 @@ These systems belong to future tasks.
 This task is complete only when:
 
 - The project builds successfully.
-- The repository graph builds successfully from an `ObjectStore`/`RelationshipStore`.
-- Neighbor discovery succeeds and preserves relationship types.
-- BFS and DFS traversal both succeed and are deterministic.
-- Path detection succeeds for both connected and disconnected object pairs.
-- Unit tests covering traversal, disconnected graphs, cycles, invalid objects, and deterministic ordering pass.
+- Audit Events are created automatically by `ObjectStore`/`RelationshipStore` operations.
+- `AuditStore` exists and persists events.
+- Events can be listed, and filtered by Engineering Object.
+- Unit tests covering creation, storage, retrieval, validation, and repository integrity pass.
 
 ---
 
@@ -110,9 +106,9 @@ Favor maintainability.
 
 Favor simplicity.
 
-The Graph Engine must remain independent of the CLI and Studios, must never modify repository contents, and must be maintained entirely in memory.
+No external JSON library dependency.
 
-Avoid speculative implementation (no shortest-path, no persistent index, no visualization).
+Avoid speculative implementation (no version control, no undo/redo, no CLI/generator wiring for `RepositoryCreated`).
 
 ---
 
@@ -149,9 +145,9 @@ Do not begin the next task until the current task has been reviewed and accepted
 
 Built with MSVC 19.51 (Visual Studio Build Tools 18) via CMake + Ninja.
 
-- Build: succeeded, including new `GraphEngine` in `platform/repository`
-- `oep_repository_tests`, `oep_engineering_object_tests`, `oep_relationship_tests`, `oep_graph_engine_tests`, `oep_search_engine_tests` (CTest): 5/5 suites passed
-  - Graph suite covers: neighbor discovery with relationship-type preservation, an isolated node, BFS and DFS over a 3-node cycle (A-B-C-A) with no infinite loop, determinism across repeated BFS calls, path existence for a connected pair, a disconnected pair (isolated node), and a self-pair, graceful failure for nonexistent objects, graph rebuild dropping a removed object, `clear_graph` not touching repository contents, and an empty repository producing an empty, valid graph
+- Build: succeeded, including the new `AuditEvent`/`AuditStore` and the `ObjectStore`/`RelationshipStore` constructor change to require an `AuditStore` (all call sites, including four test files, updated accordingly)
+- `oep_repository_tests`, `oep_engineering_object_tests`, `oep_relationship_tests`, `oep_graph_engine_tests`, `oep_audit_store_tests`, `oep_search_engine_tests` (CTest): 6/6 suites passed
+  - Audit suite covers: record/list, list-for-object filtering, validation rejections (missing timestamp, malformed objectId), `clear`, and two integration tests verifying `ObjectStore` and `RelationshipStore` each automatically record exactly one audit event per create/update/remove
 - `oep init my-workshop`: re-verified unaffected, exit code 0
 
-Task 000007 is complete pending formal acceptance.
+Task 000008 is complete pending formal acceptance.

@@ -4,6 +4,7 @@
 #include <string>
 #include <vector>
 
+#include "oep/repository/audit_store.hpp"
 #include "oep/repository/object_store.hpp"
 #include "oep/repository/relationship.hpp"
 
@@ -32,9 +33,13 @@ struct ListRelationshipsResult {
 // a relationship's source and target Engineering Objects exist. All
 // writes are atomic; a validation failure never modifies repository
 // contents.
+//
+// Every successful create/update/remove automatically records a
+// corresponding AuditEvent via `audit`, per
+// OEP-SPEC-008-REPOSITORY_AUDIT_LOG.
 class RelationshipStore {
 public:
-    RelationshipStore(std::filesystem::path root, ObjectStore objects);
+    RelationshipStore(std::filesystem::path root, ObjectStore objects, AuditStore audit);
 
     // Assigns a new relationship_id (if not already set) and created_utc,
     // verifies both objects exist, then saves.
@@ -59,7 +64,9 @@ public:
 private:
     std::filesystem::path root_;
     ObjectStore objects_;
+    AuditStore audit_;
     std::filesystem::path path_for(const std::string& relationship_id) const;
+    void record_audit(AuditEventType event_type, const std::string& relationship_id) const;
 };
 
 } // namespace oep::repository

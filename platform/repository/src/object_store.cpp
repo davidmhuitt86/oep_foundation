@@ -128,7 +128,15 @@ ObjectResult write_object_file(const std::filesystem::path& path, const Engineer
 
 } // namespace
 
-ObjectStore::ObjectStore(std::filesystem::path root) : root_(std::move(root)) {}
+ObjectStore::ObjectStore(std::filesystem::path root, AuditStore audit)
+    : root_(std::move(root)), audit_(std::move(audit)) {}
+
+void ObjectStore::record_audit(AuditEventType event_type, const std::string& object_id) const {
+    AuditEvent event;
+    event.event_type = event_type;
+    event.object_id = object_id;
+    audit_.record_event(event); // best effort: never blocks the calling operation's success
+}
 
 std::filesystem::path ObjectStore::path_for(const std::string& object_id) const {
     return root_ / (object_id + ".json");
@@ -166,6 +174,7 @@ LoadObjectResult ObjectStore::create(EngineeringObject object) const {
         return {false, write_result.error, {}};
     }
 
+    record_audit(AuditEventType::ObjectCreated, object.object_id);
     return {true, "", object};
 }
 
@@ -209,7 +218,11 @@ ObjectResult ObjectStore::update(EngineeringObject object) const {
         return {false, "refusing to save invalid object: " + join_errors(errors)};
     }
 
-    return write_object_file(path, object);
+    const ObjectResult write_result = write_object_file(path, object);
+    if (write_result.success) {
+        record_audit(AuditEventType::ObjectUpdated, object.object_id);
+    }
+    return write_result;
 }
 
 ObjectResult ObjectStore::remove(const std::string& object_id) const {
@@ -224,6 +237,7 @@ ObjectResult ObjectStore::remove(const std::string& object_id) const {
         return {false, "could not remove '" + path.string() + "': " + error_code.message()};
     }
 
+    record_audit(AuditEventType::ObjectDeleted, object_id);
     return {true, ""};
 }
 

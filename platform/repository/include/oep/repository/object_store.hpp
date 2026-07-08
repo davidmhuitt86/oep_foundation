@@ -4,6 +4,7 @@
 #include <string>
 #include <vector>
 
+#include "oep/repository/audit_store.hpp"
 #include "oep/repository/engineering_object.hpp"
 
 namespace oep::repository {
@@ -29,9 +30,15 @@ struct ListObjectsResult {
 // implementing the Create/Read/Update/Delete lifecycle from
 // OEP-SPEC-004-ENGINEERING_OBJECT_MODEL. All writes are atomic; a
 // validation failure never modifies repository contents.
+//
+// Every successful create/update/remove automatically records a
+// corresponding AuditEvent via `audit`, per
+// OEP-SPEC-008-REPOSITORY_AUDIT_LOG — applications never create audit
+// events directly. Audit recording never causes an otherwise-successful
+// operation to fail.
 class ObjectStore {
 public:
-    explicit ObjectStore(std::filesystem::path root);
+    ObjectStore(std::filesystem::path root, AuditStore audit);
 
     // Assigns a new object_id (if not already set) and timestamps, then saves.
     LoadObjectResult create(EngineeringObject object) const;
@@ -50,7 +57,9 @@ public:
 
 private:
     std::filesystem::path root_;
+    AuditStore audit_;
     std::filesystem::path path_for(const std::string& object_id) const;
+    void record_audit(AuditEventType event_type, const std::string& object_id) const;
 };
 
 } // namespace oep::repository

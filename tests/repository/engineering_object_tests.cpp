@@ -122,7 +122,8 @@ int main() {
     std::filesystem::remove_all(scratch_dir);
     std::filesystem::create_directories(scratch_dir);
 
-    const oep::repository::ObjectStore store(scratch_dir);
+    const oep::repository::ObjectStore store(scratch_dir / "objects",
+                                              oep::repository::AuditStore(scratch_dir / "audit"));
 
     test_create_assigns_id_and_timestamps(store);
     test_load_round_trips(store);

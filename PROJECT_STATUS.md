@@ -213,6 +213,10 @@ Graph Traversal
 
 Complete (in-memory `GraphEngine` — neighbor discovery, BFS/DFS, path existence — per OEP-SPEC-007)
 
+Audit Log
+
+Complete (`AuditStore` auto-recording via `ObjectStore`/`RelationshipStore`, per OEP-SPEC-008; `RepositoryCreated` not yet wired into `oep init`)
+
 Runtime
 
 Not Started

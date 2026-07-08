@@ -104,11 +104,18 @@ RelationshipResult write_relationship_file(const std::filesystem::path& path, co
 
 } // namespace
 
-RelationshipStore::RelationshipStore(std::filesystem::path root, ObjectStore objects)
-    : root_(std::move(root)), objects_(std::move(objects)) {}
+RelationshipStore::RelationshipStore(std::filesystem::path root, ObjectStore objects, AuditStore audit)
+    : root_(std::move(root)), objects_(std::move(objects)), audit_(std::move(audit)) {}
 
 std::filesystem::path RelationshipStore::path_for(const std::string& relationship_id) const {
     return root_ / (relationship_id + ".json");
+}
+
+void RelationshipStore::record_audit(AuditEventType event_type, const std::string& relationship_id) const {
+    AuditEvent event;
+    event.event_type = event_type;
+    event.object_id = relationship_id;
+    audit_.record_event(event); // best effort: never blocks the calling operation's success
 }
 
 LoadRelationshipResult RelationshipStore::create(Relationship relationship) const {
@@ -147,6 +154,7 @@ LoadRelationshipResult RelationshipStore::create(Relationship relationship) cons
         return {false, write_result.error, {}};
     }
 
+    record_audit(AuditEventType::RelationshipCreated, relationship.relationship_id);
     return {true, "", relationship};
 }
 
@@ -192,7 +200,11 @@ RelationshipResult RelationshipStore::update(Relationship relationship) const {
         return {false, "refusing to save invalid relationship: " + join_errors(errors)};
     }
 
-    return write_relationship_file(path, relationship);
+    const RelationshipResult write_result = write_relationship_file(path, relationship);
+    if (write_result.success) {
+        record_audit(AuditEventType::RelationshipUpdated, relationship.relationship_id);
+    }
+    return write_result;
 }
 
 RelationshipResult RelationshipStore::remove(const std::string& relationship_id) const {
@@ -207,6 +219,7 @@ RelationshipResult RelationshipStore::remove(const std::string& relationship_id)
         return {false, "could not remove '" + path.string() + "': " + error_code.message()};
     }
 
+    record_audit(AuditEventType::RelationshipDeleted, relationship_id);
     return {true, ""};
 }
 
