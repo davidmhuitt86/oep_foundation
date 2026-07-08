@@ -2,7 +2,7 @@
 # TASK.md
 ## Open Engineering Platform (OEP)
 
-Task ID: 000001
+Task ID: 000002
 
 Status: Complete
 
@@ -10,25 +10,17 @@ Status: Complete
 
 # Current Task
 
-Develop the initial OEP CLI executable.
+Implement the Foundation Generator inside the OEP CLI.
 
-This is the first executable component of the Open Engineering Platform.
-
-The objective is to establish the command architecture upon which all future CLI functionality will be built.
+This delivers `oep init <repository-name>`, generating a Standard Repository exactly as defined by OEP-SPEC-002-FOUNDATION_REPOSITORY.
 
 ---
 
 # Context
 
-The project architecture has been ratified and frozen.
+TASK-000001 (OEP CLI command architecture) is complete and accepted.
 
-Repository structure has been established.
-
-Technology stack has been selected.
-
-Development documentation has been created.
-
-The platform is now entering implementation.
+OEP-SPEC-002-FOUNDATION_REPOSITORY.md defines the canonical repository structure the generator must produce.
 
 ---
 
@@ -38,58 +30,36 @@ Complete the following tasks only.
 
 ## Objective 1
 
-Create the OEP CLI project.
-
-Requirements
-
-- C++23
-- CMake
-- Modular architecture
-- Clean folder structure
+Implement the `init` command using the existing `oep::cli::Command` extension point.
 
 ---
 
 ## Objective 2
 
-Implement the executable.
+Implement a Foundation Repository generator that creates, at `<repository-name>`:
 
-The executable name shall be:
+- `repository/`, `workspace/`, `packages/`, `cache/`, `logs/`, `exports/`, `settings/`
+- `README.md`, `.gitignore`, `repository.json`, `workspace.json`
 
-```
-oep
-```
-
-The project must compile successfully.
+Per OEP-SPEC-002 sections 5–7.
 
 ---
 
 ## Objective 3
 
-Implement command routing.
-
-Supported commands:
-
-```
-oep --help
-
-oep version
-```
-
-No additional commands shall be implemented during this task.
-
-Future commands shall be supported through extension points.
+Generation must be deterministic in structure (identical directories/files every run) with a globally unique repository ID per generated repository, and must fail safely (no partial repository) if the destination already exists and is non-empty.
 
 ---
 
 ## Objective 4
 
-Verify the build.
+Verify the build and exercise `oep init`.
 
 Confirm:
 
 - Project compiles
-- Executable launches
-- Commands execute successfully
+- `oep init <name>` produces the exact structure required by OEP-SPEC-002
+- Re-running against an existing non-empty directory fails without modifying it
 
 ---
 
@@ -97,16 +67,16 @@ Confirm:
 
 Do not implement:
 
-- Repository generation
 - Runtime
 - SDK
 - Studios
-- Repository Engine
+- Repository Engine (reading/validating Engineering Objects)
 - Exchange
 - Networking
 - Authentication
 - Plugin system
 - GUI
+- Enterprise/Educational/Embedded repository types
 
 These systems belong to future tasks.
 
@@ -114,13 +84,8 @@ These systems belong to future tasks.
 
 # Deliverables
 
-The completed task shall include:
-
-- CLI executable
-- Command interface
-- Command registry
-- Help command
-- Version command
+- `init` command
+- Foundation Repository generator
 - Updated documentation
 
 ---
@@ -130,11 +95,9 @@ The completed task shall include:
 This task is complete only when:
 
 - The project builds successfully.
-- The executable launches successfully.
-- `oep --help` displays help information.
-- `oep version` displays placeholder version information.
+- `oep init <repository-name>` creates the repository exactly as specified in OEP-SPEC-002.
+- No undocumented files or directories are generated.
 - The architecture remains modular.
-- No unnecessary functionality has been added.
 
 ---
 
@@ -146,11 +109,9 @@ Favor maintainability.
 
 Favor simplicity.
 
-Leave extension points.
+Leave extension points for future repository types.
 
 Avoid speculative implementation.
-
-Do not solve future problems.
 
 ---
 
@@ -159,8 +120,6 @@ Do not solve future problems.
 Before marking this task complete, verify:
 
 ✓ Build succeeds
-
-✓ No compiler warnings (where practical)
 
 ✓ Documentation updated
 
@@ -189,8 +148,8 @@ Do not begin the next task until the current task has been reviewed and accepted
 
 Built with MSVC 19.51 (Visual Studio Build Tools 18) via CMake + Ninja.
 
-- Build: succeeded (`cmake -S . -B build -G Ninja` / `cmake --build build`)
-- `oep --help`: executed successfully, exit code 0
-- `oep version`: printed `oep version 0.1.0`, exit code 0
+- Build: succeeded
+- `oep init my-workshop`: generated exactly the structure required by OEP-SPEC-002 (7 directories, 4 root files), valid UUIDv4 `repositoryId`, exit code 0
+- Re-running `oep init my-workshop` against the now non-empty directory: failed safely, exit code 1, no files modified
 
-Task 000001 is complete pending formal acceptance.
+Task 000002 is complete pending formal acceptance.

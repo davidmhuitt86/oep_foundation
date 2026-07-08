@@ -199,7 +199,7 @@ Complete (v0.1.0 — `oep --help`, `oep version`)
 
 Foundation Generator
 
-Not Started
+Complete (`oep init`, OEP-SPEC-002 Standard Repository)
 
 Repository Engine
 

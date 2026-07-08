@@ -2,7 +2,7 @@
 # CURRENT_SPRINT.md
 ## Open Engineering Platform (OEP)
 
-Sprint: 001
+Sprint: 002
 
 Status: Active
 
@@ -10,27 +10,25 @@ Status: Active
 
 # Sprint Name
 
-Foundation Drop 001
+Foundation Generator
 
 ---
 
 # Sprint Objective
 
-Establish the first executable component of the Open Engineering Platform.
+Implement the Foundation Generator inside the OEP CLI, so that `oep init <repository-name>` produces a Standard Repository conforming to OEP-SPEC-002-FOUNDATION_REPOSITORY.
 
-This sprint is focused on creating the development foundation upon which every future component of OEP will be built.
+The goal is not to implement the Repository Engine.
 
-The goal is not to deliver end-user functionality.
-
-The goal is to establish a stable, maintainable, professional development environment.
+The goal is to generate the correct on-disk structure that future Repository Engine work will operate on.
 
 ---
 
 # Primary Deliverable
 
-OEP CLI
+`oep init`
 
-The OEP CLI becomes the primary developer tool for creating, maintaining, validating, and expanding OEP repositories.
+The Foundation Generator, implemented inside the CLI, becomes the mechanism for creating new OEP repositories.
 
 ---
 
@@ -38,13 +36,9 @@ The OEP CLI becomes the primary developer tool for creating, maintaining, valida
 
 This sprint includes:
 
-- CLI project creation
-- Build system configuration
-- Command architecture
-- Version command
-- Help command
-- Initial project templates
-- Foundation Generator architecture
+- `init` command
+- Foundation Repository generator (directories, README.md, .gitignore, repository.json, workspace.json)
+- Repository ID generation
 - Documentation updates
 
 ---
@@ -53,7 +47,7 @@ This sprint includes:
 
 The following items are explicitly excluded from this sprint:
 
-- Repository Engine
+- Repository Engine (reading/validating Engineering Objects)
 - Runtime
 - SDKs
 - Exchange
@@ -65,6 +59,7 @@ The following items are explicitly excluded from this sprint:
 - Marketplace
 - Licensing
 - Hardware Integration
+- Enterprise/Educational/Embedded repository types
 
 If implementation of these items appears necessary, document the dependency and continue working within the current sprint boundaries.
 
@@ -75,10 +70,8 @@ If implementation of these items appears necessary, document the dependency and 
 This sprint is complete when:
 
 - The CLI builds successfully.
-- The executable launches correctly.
-- `oep --help` functions correctly.
-- `oep version` functions correctly.
-- The command architecture supports future expansion.
+- `oep init <repository-name>` creates the repository exactly as specified in OEP-SPEC-002.
+- Generation fails safely against an existing non-empty destination.
 - The repository remains buildable.
 - Documentation is updated.
 
@@ -174,3 +167,9 @@ Only then may the sprint be considered complete.
 # Task 000001 — Verified Complete
 
 `oep --help` and `oep version` were built with MSVC 19.51 (Visual Studio Build Tools 18) via CMake/Ninja and executed successfully (exit code 0 for both). Sprint 001 acceptance criteria are satisfied.
+
+---
+
+# Task 000002 — Verified Complete
+
+`oep init my-workshop` was built and executed with MSVC 19.51 via CMake/Ninja. The generated repository matched OEP-SPEC-002-FOUNDATION_REPOSITORY exactly: `repository/`, `workspace/`, `packages/`, `cache/`, `logs/`, `exports/`, `settings/`, plus `README.md`, `.gitignore`, `repository.json`, and `workspace.json` with a valid UUIDv4 repository ID. Re-running `init` against the same (now non-empty) directory failed safely with exit code 1 and made no changes. Sprint 002 acceptance criteria are satisfied.
