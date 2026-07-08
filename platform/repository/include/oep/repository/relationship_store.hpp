@@ -25,6 +25,11 @@ struct ListRelationshipsResult {
     bool success = false;
     std::string error;
     std::vector<Relationship> relationships;
+    // Human-readable descriptions of stored files that could not be parsed
+    // as a valid relationship (e.g. corrupt JSON, unrecognized
+    // relationshipType). Populated by list_all; list_by_object leaves this
+    // empty since it is not itself an integrity-checking operation.
+    std::vector<std::string> invalid_entries;
 };
 
 // Stores relationships as individual JSON files within a directory,
@@ -58,7 +63,8 @@ public:
     ListRelationshipsResult list_by_object(const std::string& object_id) const;
 
     // Enumerates every valid relationship stored in this store. Files that
-    // are not valid relationships (e.g. corrupt or mid-write) are skipped.
+    // are not valid relationships (e.g. corrupt or mid-write) are excluded
+    // from `relationships` and reported in `invalid_entries`.
     ListRelationshipsResult list_all() const;
 
 private:

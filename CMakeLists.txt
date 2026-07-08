@@ -8,5 +8,6 @@ enable_testing()
 
 add_subdirectory(platform/repository)
 add_subdirectory(platform/search)
+add_subdirectory(platform/validation)
 add_subdirectory(platform/cli)
 add_subdirectory(tests)

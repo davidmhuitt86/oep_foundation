@@ -243,10 +243,11 @@ ObjectResult ObjectStore::remove(const std::string& object_id) const {
 
 ListObjectsResult ObjectStore::list_all() const {
     std::vector<EngineeringObject> objects;
+    std::vector<std::string> invalid_entries;
 
     std::error_code error_code;
     if (!std::filesystem::exists(root_, error_code)) {
-        return {true, "", objects};
+        return {true, "", objects, invalid_entries};
     }
 
     for (const std::filesystem::directory_entry& entry :
@@ -256,16 +257,17 @@ ListObjectsResult ObjectStore::list_all() const {
         }
         const ParsedObject parsed = read_object_file(entry.path());
         if (!parsed.success) {
-            continue; // skip files that are not valid Engineering Objects
+            invalid_entries.push_back(entry.path().string() + ": " + parsed.error);
+            continue;
         }
         objects.push_back(parsed.object);
     }
 
     if (error_code) {
-        return {false, "could not enumerate '" + root_.string() + "': " + error_code.message(), {}};
+        return {false, "could not enumerate '" + root_.string() + "': " + error_code.message(), {}, {}};
     }
 
-    return {true, "", objects};
+    return {true, "", objects, invalid_entries};
 }
 
 } // namespace oep::repository

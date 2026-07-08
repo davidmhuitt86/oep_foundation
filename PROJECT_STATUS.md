@@ -217,6 +217,10 @@ Audit Log
 
 Complete (`AuditStore` auto-recording via `ObjectStore`/`RelationshipStore`, per OEP-SPEC-008; `RepositoryCreated` not yet wired into `oep init`)
 
+Repository Validation
+
+Complete (`RepositoryValidator` — ten integrity checks, deterministic report — per OEP-SPEC-009)
+
 Runtime
 
 Not Started

@@ -2,7 +2,7 @@
 # CURRENT_SPRINT.md
 ## Open Engineering Platform (OEP)
 
-Sprint: 008
+Sprint: 009
 
 Status: Active
 
@@ -10,25 +10,25 @@ Status: Active
 
 # Sprint Name
 
-Repository Audit Log
+Repository Integrity Validation
 
 ---
 
 # Sprint Objective
 
-Implement the Repository Audit Log per OEP-SPEC-008-REPOSITORY_AUDIT_LOG: a strongly typed `AuditEvent`, an `AuditStore`, and automatic event recording wired directly into `ObjectStore`/`RelationshipStore`.
+Implement Repository Integrity Validation per OEP-SPEC-009-REPOSITORY_VALIDATION: a `RepositoryValidator` producing a deterministic Validation Report over a repository's metadata, Engineering Objects, and Relationships.
 
-The goal is not to implement version control, undo/redo, or collaboration.
+The goal is not to implement repository repair or automatic correction.
 
-The goal is to make every Engineering Object and Relationship lifecycle operation leave a verifiable, structurally unavoidable historical record.
+The goal is to make repository integrity measurable: validation identifies problems, it does not fix them.
 
 ---
 
 # Primary Deliverable
 
-`AuditStore`
+`RepositoryValidator`
 
-Added to `platform/repository` alongside the existing stores; `ObjectStore` and `RelationshipStore` now require an `AuditStore` and record events automatically on every successful create/update/delete.
+Fills in `platform/validation` — previously a scaffolded, empty module — with `validate_repository`, `validate_objects`, `validate_relationships`, `validate_metadata`, and a `ValidationReport`.
 
 ---
 
@@ -36,9 +36,9 @@ Added to `platform/repository` alongside the existing stores; `ObjectStore` and 
 
 This sprint includes:
 
-- `AuditEvent`/`AuditEventType` and validation
-- `AuditStore` (record/list/list-by-object/clear, atomic writes)
-- `ObjectStore`/`RelationshipStore` integration
+- `platform/validation` module implementation
+- Ten integrity checks (metadata, repository ID, unique object/relationship IDs, relationship endpoints, audit event object references, duplicate UUIDs, invalid object/relationship types)
+- Deterministic, read-only Validation Report (Severity/Category/Message/ObjectId, counts)
 - Unit tests
 - Documentation updates
 
@@ -48,11 +48,10 @@ This sprint includes:
 
 The following items are explicitly excluded from this sprint:
 
-- Version control
-- Undo/Redo
-- Collaboration
-- Cloud synchronization
-- Wiring `RepositoryCreated` into `oep init`
+- Repository repair
+- Automatic correction
+- Cloud validation
+- Registry validation
 - Runtime
 - SDKs
 - Exchange
@@ -72,9 +71,11 @@ If implementation of these items appears necessary, document the dependency and 
 This sprint is complete when:
 
 - The project builds successfully.
-- Audit Events are created automatically by object/relationship lifecycle operations.
-- Events are persisted, listable, and filterable by Engineering Object.
-- Unit tests covering creation, storage, retrieval, validation, and repository integrity pass.
+- Repository validation succeeds on a healthy repository.
+- Corrupted repositories are detected across all ten checks.
+- Validation reports are generated and deterministic.
+- Validation continues after encountering a failure.
+- Unit tests covering every integrity rule pass.
 - Documentation is updated.
 
 ---
@@ -211,3 +212,9 @@ Added `GraphEngine` to `platform/repository` (no dedicated `platform/graph` modu
 # Task 000008 — Verified Complete
 
 Added `AuditEvent`/`AuditEventType` and `AuditStore` to `platform/repository`, then changed `ObjectStore`'s and `RelationshipStore`'s constructors to require an `AuditStore`, so every successful create/update/remove automatically records `ObjectCreated`/`ObjectUpdated`/`ObjectDeleted` or `RelationshipCreated`/`RelationshipUpdated`/`RelationshipDeleted` — applications cannot bypass the audit trail by construction. Audit recording is best-effort and never causes an otherwise-successful operation to fail. `AuditEventType::RepositoryCreated` is supported but intentionally not wired into `oep init`, since OEP-SPEC-002's frozen repository layout doesn't define where an audit log lives on disk. Built with MSVC 19.51 via CMake/Ninja; `oep_audit_store_tests` (record/list/list-for-object, validation rejections, `clear`, and two integration tests confirming `ObjectStore` and `RelationshipStore` each auto-record exactly one event per create/update/remove) passed via CTest alongside the existing five suites (6/6 suites). `oep init` re-verified unaffected. Sprint 008 acceptance criteria are satisfied.
+
+---
+
+# Task 000009 — Verified Complete
+
+Filled in `platform/validation` (previously a scaffolded, empty module) with `RepositoryValidator`: `validate_metadata`, `validate_objects`, `validate_relationships`, and `validate_repository`, producing a deterministic `ValidationReport` (Severity/Category/Message/ObjectId findings, plus error/warning/information counts and a Healthy/Unhealthy status). Extended `ObjectStore`/`RelationshipStore`'s `list_all` to report which stored files failed to parse and why (`invalid_entries`), since they previously discarded that information silently — without this, "no invalid object/relationship types exist" could not actually be checked. Built with MSVC 19.51 via CMake/Ninja; `oep_repository_validator_tests` (12 cases covering a healthy repository, each of the ten integrity rules individually via targeted corruption — including cases requiring raw file writes to simulate corruption unreachable through the normal store APIs — validation continuing past multiple simultaneous errors, and report determinism) passed via CTest alongside the existing six suites (7/7 suites). `oep init` re-verified unaffected. Sprint 009 acceptance criteria are satisfied.

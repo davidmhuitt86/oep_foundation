@@ -2,7 +2,7 @@
 # TASK.md
 ## Open Engineering Platform (OEP)
 
-Task ID: 000008
+Task ID: 000009
 
 Status: Complete
 
@@ -10,21 +10,19 @@ Status: Complete
 
 # Current Task
 
-Implement the Repository Audit Log per OEP-SPEC-008-REPOSITORY_AUDIT_LOG.
+Implement Repository Integrity Validation per OEP-SPEC-009-REPOSITORY_VALIDATION.
 
-This delivers a strongly typed `AuditEvent`, an `AuditStore`, and automatic event recording wired directly into `ObjectStore`/`RelationshipStore` so Engineering Object and Relationship lifecycle operations cannot bypass the audit trail.
+This delivers a `RepositoryValidator` in the `platform/validation` module (previously scaffolded and empty), producing a deterministic Validation Report over a repository's metadata, Engineering Objects, and Relationships.
 
 ---
 
 # Context
 
-TASK-000007 (Repository Graph Traversal) is complete and accepted.
+TASK-000008 (Repository Audit Log) is complete and accepted.
 
-OEP-SPEC-008-REPOSITORY_AUDIT_LOG.md defines the seven initial event types, required fields, validation, and the `RecordEvent`/`ListEvents`/`ListEventsForObject`/`Clear` interface. It requires that Foundation — not applications — creates audit events automatically whenever objects or relationships are created, updated, or deleted.
+OEP-SPEC-009-REPOSITORY_VALIDATION.md defines the `ValidateRepository`/`ValidateObjects`/`ValidateRelationships`/`ValidateMetadata`/`GenerateValidationReport` interface, the ten integrity checks Sprint 009 must verify, and the Severity/Category/Message/ObjectId shape of each finding. Repair, automatic correction, and any cloud/registry validation are explicitly out of scope. Validation is strictly read-only and must not modify repository contents or create temporary files.
 
-`AuditStore` is added to `platform/repository` alongside the existing stores, consistent with prior sprints' placement decisions (no dedicated audit module exists in the frozen architecture).
-
-Scope note: `RepositoryCreated` is implemented as a supported event type and is recordable via `AuditStore` directly, but this task does not wire it into `oep init` — OEP-SPEC-002's frozen repository structure does not specify where an audit log lives on disk within a generated repository, and deciding that convention is out of scope here. That remains open for a future task once ratified.
+`platform/validation` already exists as a scaffolded, empty module per the frozen architecture (OEP-ARCH-001) — this task specifies and fills it in for the first time, the same pattern used for `platform/search` in Sprint 006.
 
 ---
 
@@ -34,31 +32,31 @@ Complete the following tasks only.
 
 ## Objective 1
 
-Add `AuditEvent`/`AuditEventType` to `platform/repository`: `eventId`, `timestampUtc`, `eventType`, `objectId`, `user`, `description`, plus the seven initial event types (RepositoryCreated, ObjectCreated, ObjectUpdated, ObjectDeleted, RelationshipCreated, RelationshipUpdated, RelationshipDeleted).
+Add finding/report types to `platform/validation`: `Severity` (Information/Warning/Error), a finding with severity/category/message/optional object ID, and a `ValidationReport` (status, error/warning/information counts, findings).
 
 ---
 
 ## Objective 2
 
-Implement validation: required eventId/timestampUtc, UUIDv4 format for eventId, UUIDv4 format for objectId when non-empty.
+Implement `RepositoryValidator` with `validate_repository`, `validate_objects`, `validate_relationships`, `validate_metadata`, operating over a `RepositoryMetadata`, an `ObjectStore`, a `RelationshipStore`, and an `AuditStore`.
 
 ---
 
 ## Objective 3
 
-Implement `AuditStore`: `record_event`, `list_events`, `list_events_for_object`, `clear`. Atomic writes; an invalid event is never recorded; deterministic ordering.
+Implement the ten integrity checks: metadata exists/is valid, repository ID is valid, object IDs are unique, relationship IDs are unique, relationship endpoints exist, audit events reference valid objects when applicable, no duplicate UUIDs across objects/relationships, no invalid object types, no invalid relationship types.
 
 ---
 
 ## Objective 4
 
-Wire an `AuditStore` into `ObjectStore` and `RelationshipStore` so every successful create/update/delete automatically records the corresponding event. Audit recording must never cause an otherwise-successful repository operation to fail.
+Validation must continue after encountering an error (collect all findings rather than stopping at the first), never modify repository contents, and never create temporary files. Reports must be deterministic for a given repository state.
 
 ---
 
 ## Objective 5
 
-Add unit tests validating event recording, storage, retrieval (all events and by object), validation rejections, `clear`, and automatic recording from object/relationship lifecycle operations.
+Add unit tests validating: a healthy repository produces no errors, each of the ten integrity rules is individually detected when violated, validation continues past an error, and report determinism.
 
 ---
 
@@ -66,11 +64,10 @@ Add unit tests validating event recording, storage, retrieval (all events and by
 
 Do not implement:
 
-- Version control
-- Undo/Redo
-- Collaboration
-- Cloud synchronization
-- Wiring `RepositoryCreated` into `oep init` (no ratified on-disk location for the audit log within a generated repository yet)
+- Repository repair
+- Automatic correction
+- Cloud validation
+- Registry validation
 - Runtime, SDK, Studios, Exchange, Networking, Authentication, Plugin system, GUI
 
 These systems belong to future tasks.
@@ -79,9 +76,7 @@ These systems belong to future tasks.
 
 # Deliverables
 
-- `AuditEvent`/`AuditEventType` and validation
-- `AuditStore`
-- `ObjectStore`/`RelationshipStore` integration (automatic recording)
+- `platform/validation` module (`RepositoryValidator`, finding/report types)
 - Unit tests
 
 ---
@@ -91,10 +86,11 @@ These systems belong to future tasks.
 This task is complete only when:
 
 - The project builds successfully.
-- Audit Events are created automatically by `ObjectStore`/`RelationshipStore` operations.
-- `AuditStore` exists and persists events.
-- Events can be listed, and filtered by Engineering Object.
-- Unit tests covering creation, storage, retrieval, validation, and repository integrity pass.
+- Repository validation succeeds (zero errors) on a healthy repository.
+- Corrupted/inconsistent repositories are detected across all ten checks.
+- Validation reports are generated and deterministic.
+- Validation continues after encountering a failure.
+- Unit tests covering every integrity rule pass.
 
 ---
 
@@ -106,9 +102,9 @@ Favor maintainability.
 
 Favor simplicity.
 
-No external JSON library dependency.
+Validation must be read-only: no writes, no temporary files, no repair logic.
 
-Avoid speculative implementation (no version control, no undo/redo, no CLI/generator wiring for `RepositoryCreated`).
+Avoid speculative implementation (no auto-correction, no registry/cloud checks).
 
 ---
 
@@ -145,9 +141,9 @@ Do not begin the next task until the current task has been reviewed and accepted
 
 Built with MSVC 19.51 (Visual Studio Build Tools 18) via CMake + Ninja.
 
-- Build: succeeded, including the new `AuditEvent`/`AuditStore` and the `ObjectStore`/`RelationshipStore` constructor change to require an `AuditStore` (all call sites, including four test files, updated accordingly)
-- `oep_repository_tests`, `oep_engineering_object_tests`, `oep_relationship_tests`, `oep_graph_engine_tests`, `oep_audit_store_tests`, `oep_search_engine_tests` (CTest): 6/6 suites passed
-  - Audit suite covers: record/list, list-for-object filtering, validation rejections (missing timestamp, malformed objectId), `clear`, and two integration tests verifying `ObjectStore` and `RelationshipStore` each automatically record exactly one audit event per create/update/remove
+- Build: succeeded, including the new `platform/validation` module and the `invalid_entries` addition to `ObjectStore`/`RelationshipStore`'s `list_all`
+- `oep_repository_tests`, `oep_engineering_object_tests`, `oep_relationship_tests`, `oep_graph_engine_tests`, `oep_audit_store_tests`, `oep_search_engine_tests`, `oep_repository_validator_tests` (CTest): 7/7 suites passed
+  - Validator suite (12 cases) covers all ten integrity checks individually: metadata missing, metadata invalid JSON, invalid repository ID, duplicate object ID, duplicate relationship ID, missing relationship endpoint, invalid object type, invalid relationship type, UUID reused across an object and a relationship, plus a healthy-repository baseline, continuation past multiple simultaneous errors, and report determinism
 - `oep init my-workshop`: re-verified unaffected, exit code 0
 
-Task 000008 is complete pending formal acceptance.
+Task 000009 is complete pending formal acceptance.

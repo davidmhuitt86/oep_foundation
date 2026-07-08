@@ -241,10 +241,11 @@ ListRelationshipsResult RelationshipStore::list_by_object(const std::string& obj
 
 ListRelationshipsResult RelationshipStore::list_all() const {
     std::vector<Relationship> relationships;
+    std::vector<std::string> invalid_entries;
 
     std::error_code error_code;
     if (!std::filesystem::exists(root_, error_code)) {
-        return {true, "", relationships};
+        return {true, "", relationships, invalid_entries};
     }
 
     for (const std::filesystem::directory_entry& entry :
@@ -254,16 +255,17 @@ ListRelationshipsResult RelationshipStore::list_all() const {
         }
         const ParsedRelationship parsed = read_relationship_file(entry.path());
         if (!parsed.success) {
-            continue; // skip files that are not valid relationships
+            invalid_entries.push_back(entry.path().string() + ": " + parsed.error);
+            continue;
         }
         relationships.push_back(parsed.relationship);
     }
 
     if (error_code) {
-        return {false, "could not enumerate '" + root_.string() + "': " + error_code.message(), {}};
+        return {false, "could not enumerate '" + root_.string() + "': " + error_code.message(), {}, {}};
     }
 
-    return {true, "", relationships};
+    return {true, "", relationships, invalid_entries};
 }
 
 } // namespace oep::repository

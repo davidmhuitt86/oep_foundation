@@ -24,6 +24,12 @@ struct ListObjectsResult {
     bool success = false;
     std::string error;
     std::vector<EngineeringObject> objects;
+    // Human-readable descriptions of stored files that could not be parsed
+    // as a valid Engineering Object (e.g. corrupt JSON, unrecognized
+    // objectType). These entries are excluded from `objects` but are not
+    // otherwise reported by list_all; validation-oriented callers should
+    // inspect this list to detect corruption that list_all itself ignores.
+    std::vector<std::string> invalid_entries;
 };
 
 // Stores Engineering Objects as individual JSON files within a directory,
@@ -52,7 +58,8 @@ public:
     ObjectResult remove(const std::string& object_id) const;
 
     // Enumerates every valid object stored in this store. Files that are
-    // not valid Engineering Objects (e.g. corrupt or mid-write) are skipped.
+    // not valid Engineering Objects (e.g. corrupt or mid-write) are
+    // excluded from `objects` and reported in `invalid_entries`.
     ListObjectsResult list_all() const;
 
 private:
