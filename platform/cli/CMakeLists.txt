@@ -7,7 +7,6 @@ add_executable(oep
     src/commands/init_command.cpp
     src/commands/version_command.cpp
     src/generator/repository_generator.cpp
-    src/generator/uuid.cpp
 )
 
 target_include_directories(oep PRIVATE include src)

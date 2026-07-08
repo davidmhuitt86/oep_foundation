@@ -3,6 +3,10 @@ cmake_minimum_required(VERSION 3.25)
 add_library(oep_repository STATIC
     src/metadata.cpp
     src/json_value.cpp
+    src/uuid.cpp
+    src/timestamp.cpp
+    src/engineering_object.cpp
+    src/object_store.cpp
 )
 
 target_include_directories(oep_repository PUBLIC include)

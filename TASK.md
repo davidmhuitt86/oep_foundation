@@ -2,7 +2,7 @@
 # TASK.md
 ## Open Engineering Platform (OEP)
 
-Task ID: 000003
+Task ID: 000004
 
 Status: Complete
 
@@ -10,17 +10,17 @@ Status: Complete
 
 # Current Task
 
-Implement the Repository Metadata System per OEP-SPEC-003-REPOSITORY_METADATA.
+Implement the Engineering Object Model per OEP-SPEC-004-ENGINEERING_OBJECT_MODEL.
 
-This delivers a strongly typed `repository.json` metadata model, with a loader, a writer, and validation, used by the Foundation Generator and available to future Foundation components.
+This delivers a strongly typed `EngineeringObject`, validation, serialization, and a Create/Read/Update/Delete store, so that future subsystems operate on Engineering Objects rather than files directly.
 
 ---
 
 # Context
 
-TASK-000002 (Foundation Generator / `oep init`) is complete and accepted.
+TASK-000003 (Repository Metadata System) is complete and accepted.
 
-OEP-SPEC-003-REPOSITORY_METADATA.md defines the metadata schema, identity rules, and load/save/validation requirements. Sprint 003 focuses exclusively on `repository.json`.
+OEP-SPEC-004-ENGINEERING_OBJECT_MODEL.md defines object identity, metadata, classification, lifecycle, and validation requirements. File formats and object relationships are explicitly out of scope for this spec.
 
 ---
 
@@ -30,31 +30,31 @@ Complete the following tasks only.
 
 ## Objective 1
 
-Add a new `platform/repository` module (library) exposing a strongly typed `RepositoryMetadata` object matching the OEP-SPEC-003 schema.
+Add `EngineeringObject` to `platform/repository`: `objectId`, `objectType`, `name`, `description`, `createdUtc`, `lastModifiedUtc`, `version`, `author`, `tags`, plus the six initial object types (Document, Diagram, Component, Procedure, Project, Image).
 
 ---
 
 ## Objective 2
 
-Implement a metadata loader that parses `repository.json`, validates required fields, UUID format, version format, and reports descriptive errors on malformed input without modifying anything.
+Implement validation: required fields, UUIDv4 `objectId`, valid `objectType`, version format.
 
 ---
 
 ## Objective 3
 
-Implement a metadata writer that saves `RepositoryMetadata`, updates `lastModifiedUtc`, and writes atomically (never leaving a partially-written file).
+Implement serialization/deserialization (to/from JSON) preserving all metadata.
 
 ---
 
 ## Objective 4
 
-Update the Foundation Generator (`oep init`) to populate `repository.json` through this new metadata writer instead of hand-written JSON.
+Implement a Create/Read/Update/Delete object store: creation generates the object ID and timestamps; updates preserve `objectId`/`objectType`/`createdUtc` and refresh `lastModifiedUtc`; all writes are atomic; validation failures never modify repository contents.
 
 ---
 
 ## Objective 5
 
-Add unit tests validating the loader (valid file, invalid JSON, missing required fields, bad UUID) and the writer (round-trip, timestamp update).
+Add unit tests validating object creation, loading, saving (update), and validation failures.
 
 ---
 
@@ -62,11 +62,12 @@ Add unit tests validating the loader (valid file, invalid JSON, missing required
 
 Do not implement:
 
+- Object relationships (future specification)
+- File format standardization
 - Registry synchronization
-- Authentication
-- Cloud services
-- workspace.json schema changes
-- Runtime, SDK, Studios, Exchange, Networking, Plugin system, GUI
+- User interface behavior
+- Soft-delete (noted in spec as a future revision)
+- Runtime, SDK, Studios, Exchange, Networking, Authentication, Plugin system, GUI
 
 These systems belong to future tasks.
 
@@ -74,9 +75,10 @@ These systems belong to future tasks.
 
 # Deliverables
 
-- `platform/repository` library (metadata model, loader, writer, validation)
-- Updated Foundation Generator
-- Unit tests for loader and writer
+- `EngineeringObject` model and validation
+- Object serialization/deserialization
+- CRUD object store
+- Unit tests
 
 ---
 
@@ -85,11 +87,11 @@ These systems belong to future tasks.
 This task is complete only when:
 
 - The project builds successfully.
-- Repository metadata loads successfully from a well-formed `repository.json`.
-- Invalid metadata (malformed JSON, missing fields, bad UUID) is detected and reported without modifying files.
-- Metadata can be written safely (atomic write, updated timestamp).
-- `oep init` produces `repository.json` via the new metadata writer.
-- Unit tests pass.
+- `EngineeringObject` exists with strongly typed metadata.
+- UUID identity is enforced.
+- Object validation succeeds/fails correctly.
+- Serialization and deserialization round-trip successfully.
+- Unit tests covering creation, loading, saving, and validation pass.
 
 ---
 
@@ -101,9 +103,9 @@ Favor maintainability.
 
 Favor simplicity.
 
-No external JSON library dependency — implement the minimal parser/serializer this schema requires.
+No external JSON library dependency.
 
-Avoid speculative implementation.
+Avoid speculative implementation (no relationships, no soft-delete yet).
 
 ---
 
@@ -140,8 +142,9 @@ Do not begin the next task until the current task has been reviewed and accepted
 
 Built with MSVC 19.51 (Visual Studio Build Tools 18) via CMake + Ninja.
 
-- Build: succeeded (`platform/repository`, `platform/cli`, `tests/repository`)
-- `oep_repository_tests` (CTest): 6/6 cases passed — valid load, invalid JSON rejected, missing required fields rejected, malformed UUID rejected, save/round-trip refreshes `lastModifiedUtc`, invalid metadata rejected on save with no file written
-- `oep init my-workshop`: `repository.json` generated via the new metadata writer, matches OEP-SPEC-003 schema exactly, no leftover `.tmp` file, exit code 0
+- Build: succeeded, including a UUID/timestamp consolidation refactor (removed a duplicate UUID generator that had existed in `platform/cli`)
+- `oep_repository_tests` and `oep_engineering_object_tests` (CTest): 2/2 suites passed, 14 assertions total
+  - Engineering Object suite covers: create assigns objectId/timestamps, load round-trip, load fails for a missing object, update preserves objectId/objectType/createdUtc while refreshing lastModifiedUtc, remove deletes the object, and validation rejects a missing name / malformed objectId
+- `oep init my-workshop`: still produces a correct `repository.json` after the refactor, exit code 0
 
-Task 000003 is complete pending formal acceptance.
+Task 000004 is complete pending formal acceptance.

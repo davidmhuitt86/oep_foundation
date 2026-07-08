@@ -1,12 +1,17 @@
-#include "uuid.hpp"
+#include "oep/repository/uuid.hpp"
 
-#include <array>
 #include <cstdint>
-#include <random>
-#include <sstream>
 #include <iomanip>
+#include <random>
+#include <regex>
+#include <sstream>
 
-namespace oep::cli::generator {
+namespace oep::repository {
+
+namespace {
+const std::regex kUuidV4Pattern(
+    "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$");
+}
 
 std::string generate_uuid_v4() {
     std::random_device random_device;
@@ -31,4 +36,8 @@ std::string generate_uuid_v4() {
     return stream.str();
 }
 
-} // namespace oep::cli::generator
+bool is_valid_uuid_v4(const std::string& value) {
+    return std::regex_match(value, kUuidV4Pattern);
+}
+
+} // namespace oep::repository

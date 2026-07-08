@@ -1,26 +1,19 @@
 #include "oep/repository/metadata.hpp"
 
-#include <chrono>
-#include <format>
 #include <fstream>
 #include <regex>
 #include <sstream>
 #include <system_error>
 
 #include "json_value.hpp"
+#include "oep/repository/timestamp.hpp"
+#include "oep/repository/uuid.hpp"
 
 namespace oep::repository {
 
 namespace {
 
-const std::regex kUuidV4Pattern(
-    "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$");
 const std::regex kSemanticVersionPattern("^[0-9]+\\.[0-9]+\\.[0-9]+$");
-
-std::string current_timestamp_iso8601() {
-    const auto now = std::chrono::system_clock::now();
-    return std::format("{:%Y-%m-%dT%H:%M:%SZ}", std::chrono::floor<std::chrono::seconds>(now));
-}
 
 std::string read_field(const json::Value& object, const char* key) {
     const json::Value* found = object.find(key);
@@ -69,7 +62,7 @@ std::vector<std::string> validate_metadata(const RepositoryMetadata& metadata) {
 
     if (metadata.repository_id.empty()) {
         errors.push_back("repositoryId is required");
-    } else if (!std::regex_match(metadata.repository_id, kUuidV4Pattern)) {
+    } else if (!is_valid_uuid_v4(metadata.repository_id)) {
         errors.push_back("repositoryId is not a valid UUIDv4");
     }
 
@@ -145,7 +138,7 @@ LoadMetadataResult load_metadata(const std::filesystem::path& path) {
 }
 
 SaveMetadataResult save_metadata(const std::filesystem::path& path, RepositoryMetadata metadata) {
-    metadata.last_modified_utc = current_timestamp_iso8601();
+    metadata.last_modified_utc = current_timestamp_utc();
     if (metadata.created_utc.empty()) {
         metadata.created_utc = metadata.last_modified_utc;
     }

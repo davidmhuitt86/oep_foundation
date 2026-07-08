@@ -2,7 +2,7 @@
 # CURRENT_SPRINT.md
 ## Open Engineering Platform (OEP)
 
-Sprint: 003
+Sprint: 004
 
 Status: Active
 
@@ -10,25 +10,25 @@ Status: Active
 
 # Sprint Name
 
-Repository Metadata System
+Engineering Object Model
 
 ---
 
 # Sprint Objective
 
-Implement the Repository Metadata System per OEP-SPEC-003-REPOSITORY_METADATA: a strongly typed metadata model, loader, writer, and validation for `repository.json`.
+Implement the Engineering Object Model per OEP-SPEC-004-ENGINEERING_OBJECT_MODEL: a strongly typed `EngineeringObject`, validation, serialization, and a CRUD store.
 
-The goal is not to implement the full Repository Engine.
+The goal is not to implement object relationships, soft-delete, or a finalized on-disk file format standard.
 
-The goal is to establish the metadata foundation that Foundation, Studios, SDKs, and the Registry will rely on to identify and describe a repository.
+The goal is to establish the object model every future Foundation subsystem will operate on instead of manipulating files directly.
 
 ---
 
 # Primary Deliverable
 
-`platform/repository` metadata module
+`EngineeringObject` + object store
 
-Exposes `RepositoryMetadata`, a loader, a writer, and validation, consumed by the Foundation Generator and available to future Foundation components.
+Extends `platform/repository` with the object model and lifecycle operations (Create/Read/Update/Delete).
 
 ---
 
@@ -36,9 +36,10 @@ Exposes `RepositoryMetadata`, a loader, a writer, and validation, consumed by th
 
 This sprint includes:
 
-- `platform/repository` library
-- Metadata schema, loader, writer, validation
-- Foundation Generator integration
+- `EngineeringObject` model and the six initial object types
+- Validation (required fields, UUIDv4 objectId, object type, version format)
+- JSON serialization/deserialization
+- CRUD object store (atomic writes)
 - Unit tests
 - Documentation updates
 
@@ -48,10 +49,12 @@ This sprint includes:
 
 The following items are explicitly excluded from this sprint:
 
+- Object relationships
+- File format standardization
+- Soft-delete
 - Registry synchronization
 - Authentication
 - Cloud services
-- workspace.json schema changes
 - Runtime
 - SDKs
 - Exchange
@@ -71,9 +74,10 @@ If implementation of these items appears necessary, document the dependency and 
 This sprint is complete when:
 
 - The project builds successfully.
-- Repository metadata loads, validates, and saves correctly.
-- `oep init` populates `repository.json` via the new metadata writer.
-- Unit tests pass.
+- `EngineeringObject` exists with strongly typed metadata and enforced UUID identity.
+- Object validation succeeds/fails correctly.
+- Serialization and deserialization round-trip successfully.
+- Unit tests covering creation, loading, saving, and validation pass.
 - Documentation is updated.
 
 ---
@@ -180,3 +184,9 @@ Only then may the sprint be considered complete.
 # Task 000003 — Verified Complete
 
 The `platform/repository` metadata module (schema, loader, writer, validation, internal JSON parser/serializer) was built with MSVC 19.51 via CMake/Ninja. `oep_repository_tests` (6 cases covering valid load, invalid JSON, missing fields, bad UUID, save/round-trip with timestamp refresh, and rejection of invalid metadata) passed via CTest. `oep init` now populates `repository.json` through the new metadata writer, verified end-to-end to match OEP-SPEC-003's schema with no leftover temporary file. Sprint 003 acceptance criteria are satisfied.
+
+---
+
+# Task 000004 — Verified Complete
+
+Added `EngineeringObject`, `ObjectType`, validation, JSON serialization, and a Create/Read/Update/Delete `ObjectStore` to `platform/repository`. UUID generation/validation and UTC timestamp formatting — previously duplicated between the CLI generator and the metadata module — were consolidated into shared `oep/repository/uuid.hpp` and `oep/repository/timestamp.hpp`; the CLI's local `uuid.cpp`/`uuid.hpp` were removed. Built with MSVC 19.51 via CMake/Ninja; `oep_engineering_object_tests` (8 cases: create assigns id/timestamps, load round-trip, missing-object load failure, update preserving immutable fields and refreshing lastModifiedUtc, remove, and validation rejections) passed via CTest alongside the existing metadata tests (2/2 suites). `oep init` re-verified end-to-end after the refactor. Sprint 004 acceptance criteria are satisfied.
