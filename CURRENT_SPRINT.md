@@ -2,7 +2,7 @@
 # CURRENT_SPRINT.md
 ## Open Engineering Platform (OEP)
 
-Sprint: 009
+Sprint: 010
 
 Status: Active
 
@@ -10,25 +10,25 @@ Status: Active
 
 # Sprint Name
 
-Repository Integrity Validation
+Package System Foundation
 
 ---
 
 # Sprint Objective
 
-Implement Repository Integrity Validation per OEP-SPEC-009-REPOSITORY_VALIDATION: a `RepositoryValidator` producing a deterministic Validation Report over a repository's metadata, Engineering Objects, and Relationships.
+Implement the Package System Foundation per OEP-SPEC-010-PACKAGE_SYSTEM: a `PackageManifest` model and a `PackageManager` that discovers, loads, and validates packages under a repository's `packages/` directory.
 
-The goal is not to implement repository repair or automatic correction.
+The goal is not to implement package installation, an online registry, updates, or dependency resolution.
 
-The goal is to make repository integrity measurable: validation identifies problems, it does not fix them.
+The goal is to establish how Foundation extends itself through packages without modifying Foundation.
 
 ---
 
 # Primary Deliverable
 
-`RepositoryValidator`
+`PackageManager`
 
-Fills in `platform/validation` — previously a scaffolded, empty module — with `validate_repository`, `validate_objects`, `validate_relationships`, `validate_metadata`, and a `ValidationReport`.
+A new `platform/packages` module (no pre-scaffolded placeholder existed for it) exposing `discover_packages`, `load_package`, and `list_packages`.
 
 ---
 
@@ -36,9 +36,10 @@ Fills in `platform/validation` — previously a scaffolded, empty module — wit
 
 This sprint includes:
 
-- `platform/validation` module implementation
-- Ten integrity checks (metadata, repository ID, unique object/relationship IDs, relationship endpoints, audit event object references, duplicate UUIDs, invalid object/relationship types)
-- Deterministic, read-only Validation Report (Severity/Category/Message/ObjectId, counts)
+- `platform/packages` module
+- `PackageManifest`/`PackageType` and validation
+- Package state (Loaded/Invalid/Disabled)
+- Promoting `platform/repository`'s JSON parser to a public header for reuse
 - Unit tests
 - Documentation updates
 
@@ -48,10 +49,10 @@ This sprint includes:
 
 The following items are explicitly excluded from this sprint:
 
-- Repository repair
-- Automatic correction
-- Cloud validation
-- Registry validation
+- Package installation
+- Online package registry
+- Package updates
+- Package dependencies
 - Runtime
 - SDKs
 - Exchange
@@ -71,11 +72,11 @@ If implementation of these items appears necessary, document the dependency and 
 This sprint is complete when:
 
 - The project builds successfully.
-- Repository validation succeeds on a healthy repository.
-- Corrupted repositories are detected across all ten checks.
-- Validation reports are generated and deterministic.
-- Validation continues after encountering a failure.
-- Unit tests covering every integrity rule pass.
+- Package discovery succeeds.
+- Valid packages load.
+- Invalid packages are rejected without blocking valid ones.
+- Package manifests are validated.
+- Unit tests covering discovery, validation, loading, duplicate package IDs, invalid manifests, and unsupported Foundation versions pass.
 - Documentation is updated.
 
 ---

@@ -12,9 +12,11 @@ class Value;
 using Array = std::vector<Value>;
 using Object = std::vector<std::pair<std::string, Value>>; // preserves insertion order
 
-// A minimal JSON value supporting the subset of JSON needed to
-// represent repository metadata: null, bool, number, string, array,
-// object. Not a general-purpose JSON library.
+// A minimal JSON value supporting the subset of JSON needed by
+// Foundation's file-backed stores: null, bool, number, string, array,
+// object. Not a general-purpose JSON library. Public so other platform
+// modules (e.g. platform/packages) can reuse it instead of
+// implementing their own parser.
 class Value {
 public:
     enum class Type { Null, Bool, Number, String, Array, Object };

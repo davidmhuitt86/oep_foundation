@@ -5,7 +5,7 @@
 #include <sstream>
 #include <system_error>
 
-#include "json_value.hpp"
+#include "oep/repository/json_value.hpp"
 #include "oep/repository/timestamp.hpp"
 #include "oep/repository/uuid.hpp"
 

@@ -2,27 +2,29 @@
 # TASK.md
 ## Open Engineering Platform (OEP)
 
-Task ID: 000009
+Task ID: 000010
 
-Status: Complete
+Status: Active
 
 ---
 
 # Current Task
 
-Implement Repository Integrity Validation per OEP-SPEC-009-REPOSITORY_VALIDATION.
+Implement the Package System Foundation per OEP-SPEC-010-PACKAGE_SYSTEM.
 
-This delivers a `RepositoryValidator` in the `platform/validation` module (previously scaffolded and empty), producing a deterministic Validation Report over a repository's metadata, Engineering Objects, and Relationships.
+This delivers a `PackageManifest` model and a `PackageManager` capable of discovering, loading, and validating packages under a repository's `packages/` directory.
 
 ---
 
 # Context
 
-TASK-000008 (Repository Audit Log) is complete and accepted.
+TASK-000009 (Repository Integrity Validation) is complete and accepted.
 
-OEP-SPEC-009-REPOSITORY_VALIDATION.md defines the `ValidateRepository`/`ValidateObjects`/`ValidateRelationships`/`ValidateMetadata`/`GenerateValidationReport` interface, the ten integrity checks Sprint 009 must verify, and the Severity/Category/Message/ObjectId shape of each finding. Repair, automatic correction, and any cloud/registry validation are explicitly out of scope. Validation is strictly read-only and must not modify repository contents or create temporary files.
+OEP-SPEC-010-PACKAGE_SYSTEM.md defines package identity/metadata, the five initial package types, the manifest (`package.json`) requirement, the `DiscoverPackages`/`LoadPackage`/`ListPackages` interface, validation rules, and the Loaded/Invalid/Disabled package states. Package installation, an online registry, updates, and dependencies are explicitly deferred to future specifications.
 
-`platform/validation` already exists as a scaffolded, empty module per the frozen architecture (OEP-ARCH-001) — this task specifies and fills it in for the first time, the same pattern used for `platform/search` in Sprint 006.
+No `platform/packages` module is pre-scaffolded in the frozen architecture (unlike Search and Validation, which had empty placeholders). This task adds it as a new module, since the spec describes a distinct Foundation subsystem ("Foundation shall expose a Package Manager") rather than a capability of an existing one.
+
+While implementing, promoted `platform/repository`'s internal JSON parser (`src/json_value.hpp`) to a public header (`include/oep/repository/json_value.hpp`) so `platform/packages` can parse `package.json` without a second, duplicate JSON implementation.
 
 ---
 
@@ -32,31 +34,31 @@ Complete the following tasks only.
 
 ## Objective 1
 
-Add finding/report types to `platform/validation`: `Severity` (Information/Warning/Error), a finding with severity/category/message/optional object ID, and a `ValidationReport` (status, error/warning/information counts, findings).
+Add `PackageManifest`/`PackageType` to `platform/packages`: `packageId`, `packageName`, `packageVersion`, `packageType`, `author`, `organization`, `description`, `tags`, `foundationVersion`, `createdUtc`, plus the five initial package types (EngineeringContent, Studio, SDK, Extension, Theme).
 
 ---
 
 ## Objective 2
 
-Implement `RepositoryValidator` with `validate_repository`, `validate_objects`, `validate_relationships`, `validate_metadata`, operating over a `RepositoryMetadata`, an `ObjectStore`, a `RelationshipStore`, and an `AuditStore`.
+Implement validation: required fields, UUIDv4 packageId, semantic-version packageVersion/foundationVersion, valid packageType.
 
 ---
 
 ## Objective 3
 
-Implement the ten integrity checks: metadata exists/is valid, repository ID is valid, object IDs are unique, relationship IDs are unique, relationship endpoints exist, audit events reference valid objects when applicable, no duplicate UUIDs across objects/relationships, no invalid object types, no invalid relationship types.
+Implement `PackageManager`: `discover_packages` (find candidate package directories under `packages/`, deterministically), `load_package` (load and validate one package by directory name), `list_packages` (discover + load every candidate). Foundation version compatibility is checked against a version supplied to `PackageManager`, not inferred or hardcoded, since nothing in the codebase currently owns "the current Foundation version" as a canonical constant.
 
 ---
 
 ## Objective 4
 
-Validation must continue after encountering an error (collect all findings rather than stopping at the first), never modify repository contents, and never create temporary files. Reports must be deterministic for a given repository state.
+Package state (Loaded/Invalid/Disabled) is reported per discovered package. A package directory containing a `.disabled` marker file is Disabled; otherwise a package with a missing/malformed/incompatible manifest is Invalid; otherwise Loaded. An invalid package never prevents other valid packages from being discovered or loaded.
 
 ---
 
 ## Objective 5
 
-Add unit tests validating: a healthy repository produces no errors, each of the ten integrity rules is individually detected when violated, validation continues past an error, and report determinism.
+Add unit tests validating discovery, validation, loading, duplicate package IDs, invalid manifests, and unsupported Foundation versions.
 
 ---
 
@@ -64,10 +66,10 @@ Add unit tests validating: a healthy repository produces no errors, each of the 
 
 Do not implement:
 
-- Repository repair
-- Automatic correction
-- Cloud validation
-- Registry validation
+- Package installation
+- Online package registry
+- Package updates
+- Package dependencies
 - Runtime, SDK, Studios, Exchange, Networking, Authentication, Plugin system, GUI
 
 These systems belong to future tasks.
@@ -76,7 +78,7 @@ These systems belong to future tasks.
 
 # Deliverables
 
-- `platform/validation` module (`RepositoryValidator`, finding/report types)
+- `platform/packages` module (`PackageManifest`, `PackageManager`, package state)
 - Unit tests
 
 ---
@@ -86,11 +88,11 @@ These systems belong to future tasks.
 This task is complete only when:
 
 - The project builds successfully.
-- Repository validation succeeds (zero errors) on a healthy repository.
-- Corrupted/inconsistent repositories are detected across all ten checks.
-- Validation reports are generated and deterministic.
-- Validation continues after encountering a failure.
-- Unit tests covering every integrity rule pass.
+- Package discovery succeeds.
+- Valid packages load.
+- Invalid packages are rejected without blocking valid ones.
+- Package manifests are validated.
+- Unit tests covering discovery, validation, loading, duplicate package IDs, invalid manifests, and unsupported Foundation versions pass.
 
 ---
 
@@ -102,9 +104,9 @@ Favor maintainability.
 
 Favor simplicity.
 
-Validation must be read-only: no writes, no temporary files, no repair logic.
+No external JSON library dependency — reuse `platform/repository`'s JSON parser rather than writing a second one.
 
-Avoid speculative implementation (no auto-correction, no registry/cloud checks).
+Avoid speculative implementation (no installation, registry, updates, or dependency resolution).
 
 ---
 
@@ -134,16 +136,3 @@ Update:
 Create the next TASK.md for the following objective.
 
 Do not begin the next task until the current task has been reviewed and accepted.
-
----
-
-# Verification Record
-
-Built with MSVC 19.51 (Visual Studio Build Tools 18) via CMake + Ninja.
-
-- Build: succeeded, including the new `platform/validation` module and the `invalid_entries` addition to `ObjectStore`/`RelationshipStore`'s `list_all`
-- `oep_repository_tests`, `oep_engineering_object_tests`, `oep_relationship_tests`, `oep_graph_engine_tests`, `oep_audit_store_tests`, `oep_search_engine_tests`, `oep_repository_validator_tests` (CTest): 7/7 suites passed
-  - Validator suite (12 cases) covers all ten integrity checks individually: metadata missing, metadata invalid JSON, invalid repository ID, duplicate object ID, duplicate relationship ID, missing relationship endpoint, invalid object type, invalid relationship type, UUID reused across an object and a relationship, plus a healthy-repository baseline, continuation past multiple simultaneous errors, and report determinism
-- `oep init my-workshop`: re-verified unaffected, exit code 0
-
-Task 000009 is complete pending formal acceptance.
