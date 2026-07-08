@@ -4,7 +4,7 @@
 
 Task ID: 000001
 
-Status: Active
+Status: Complete
 
 ---
 
@@ -182,3 +182,15 @@ Update:
 Create the next TASK.md for the following objective.
 
 Do not begin the next task until the current task has been reviewed and accepted.
+
+---
+
+# Verification Record
+
+Built with MSVC 19.51 (Visual Studio Build Tools 18) via CMake + Ninja.
+
+- Build: succeeded (`cmake -S . -B build -G Ninja` / `cmake --build build`)
+- `oep --help`: executed successfully, exit code 0
+- `oep version`: printed `oep version 0.1.0`, exit code 0
+
+Task 000001 is complete pending formal acceptance.

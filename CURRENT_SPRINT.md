@@ -168,3 +168,9 @@ Before closing the sprint, verify:
 ✓ Acceptance criteria satisfied
 
 Only then may the sprint be considered complete.
+
+---
+
+# Task 000001 — Verified Complete
+
+`oep --help` and `oep version` were built with MSVC 19.51 (Visual Studio Build Tools 18) via CMake/Ninja and executed successfully (exit code 0 for both). Sprint 001 acceptance criteria are satisfied.

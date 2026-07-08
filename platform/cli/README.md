@@ -1,3 +1,18 @@
-# cli
+# CLI
 
-Placeholder
+Status: Foundation (v0.1.0)
+
+Purpose: The `oep` executable — the primary developer tool for creating and managing OEP repositories.
+
+## Architecture
+
+- `include/oep/cli/` — public command interfaces (`Command`, `CommandRegistry`)
+- `src/commands/` — individual command implementations
+- `src/main.cpp` — argument parsing and command dispatch
+
+## Commands
+
+- `oep --help` / `oep -h` — display available commands
+- `oep version` — display the CLI version
+
+New commands are added by implementing `oep::cli::Command` and registering an instance in `main.cpp`. No other part of the CLI needs to change.

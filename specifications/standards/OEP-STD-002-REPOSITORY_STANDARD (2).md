@@ -1,3 +1,0 @@
-# OEP-STD-002-REPOSITORY_STANDARD.md
-
-Placeholder

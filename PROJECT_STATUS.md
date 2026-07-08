@@ -195,7 +195,7 @@ In Progress
 
 CLI
 
-In Progress
+Complete (v0.1.0 — `oep --help`, `oep version`)
 
 Foundation Generator
 
