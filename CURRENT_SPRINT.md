@@ -2,7 +2,7 @@
 # CURRENT_SPRINT.md
 ## Open Engineering Platform (OEP)
 
-Sprint: 005
+Sprint: 006
 
 Status: Active
 
@@ -10,25 +10,25 @@ Status: Active
 
 # Sprint Name
 
-Engineering Object Relationship Model
+Repository Search System
 
 ---
 
 # Sprint Objective
 
-Implement the Engineering Object Relationship Model per OEP-SPEC-005-OBJECT_RELATIONSHIP_MODEL: a strongly typed `Relationship`, validation, serialization, and a CRUD + enumerate store.
+Implement the Repository Search System per OEP-SPEC-006-REPOSITORY_SEARCH: a `SearchEngine` providing deterministic, offline, in-memory search over Engineering Objects and Relationships.
 
-The goal is not to implement graph search, AI reasoning, or visualization.
+The goal is not to implement semantic search, AI-assisted search, or persistent/incremental indexing.
 
-The goal is to connect Engineering Objects into a navigable knowledge graph — objects as nodes, relationships as edges.
+The goal is to make repository contents discoverable, rebuilt from the stores on demand.
 
 ---
 
 # Primary Deliverable
 
-`Relationship` + Relationship Store
+`SearchEngine`
 
-Extends `platform/repository` with the relationship model and lifecycle operations (Create/Read/Update/Delete/Enumerate-by-object).
+Fills in `platform/search` — previously a scaffolded, empty module — with `build_index`, `clear_index`, `search_objects`, and `search_relationships`.
 
 ---
 
@@ -36,10 +36,10 @@ Extends `platform/repository` with the relationship model and lifecycle operatio
 
 This sprint includes:
 
-- `Relationship` model and the six initial relationship types
-- Validation (both objects exist, valid type, source ≠ target, UUID format)
-- JSON serialization/deserialization
-- CRUD + enumerate Relationship Store (atomic writes)
+- `platform/search` module implementation
+- `ObjectStore::list_all` / `RelationshipStore::list_all` (enumeration support in `platform/repository`)
+- Case-insensitive, partial-match search across the fields OEP-SPEC-006 defines
+- Deterministic result ordering and scoring
 - Unit tests
 - Documentation updates
 
@@ -49,11 +49,11 @@ This sprint includes:
 
 The following items are explicitly excluded from this sprint:
 
-- Graph search
-- AI reasoning
-- Visualization
-- Registry synchronization
-- Reverse traversal beyond enumerate-by-object
+- Semantic search
+- AI-assisted search
+- Registry search
+- Distributed search
+- Persistent/incremental indexing
 - Runtime
 - SDKs
 - Exchange
@@ -73,11 +73,10 @@ If implementation of these items appears necessary, document the dependency and 
 This sprint is complete when:
 
 - The project builds successfully.
-- `Relationship` and the Relationship Store exist.
-- CRUD operations succeed.
-- Validation rejects nonexistent objects, invalid types, matching source/target, and malformed UUIDs.
-- Serialization round-trips successfully.
-- Unit tests covering creation, persistence, loading, validation, enumeration, and deletion pass.
+- Repository indexes build successfully from an `ObjectStore`/`RelationshipStore`.
+- Engineering Objects and Relationships are both searchable.
+- Search results are deterministic.
+- Unit tests covering indexing, searching, rebuilding, and invalid-query handling pass.
 - Documentation is updated.
 
 ---
@@ -196,3 +195,9 @@ Added `EngineeringObject`, `ObjectType`, validation, JSON serialization, and a C
 # Task 000005 — Verified Complete
 
 Added `Relationship`, `RelationshipType`, validation, JSON serialization, and a Create/Read/Update/Delete/Enumerate `RelationshipStore` to `platform/repository`, validated against an `ObjectStore` so relationships can only be created between Engineering Objects that actually exist. Built with MSVC 19.51 via CMake/Ninja; `oep_relationship_tests` (9 cases: create succeeds for existing objects, create fails for a missing object, create fails when source equals target, load round-trip, update preserving immutable fields, remove, enumerate-by-object in both directions, and two validation rejections) passed via CTest alongside the existing metadata and object test suites (3/3 suites). `oep init` re-verified unaffected. Sprint 005 acceptance criteria are satisfied.
+
+---
+
+# Task 000006 — Verified Complete
+
+Filled in `platform/search` (previously a scaffolded, empty module) with `SearchEngine`: `build_index`, `clear_index`, `search_objects`, `search_relationships`, and result types with match location and score. Added `ObjectStore::list_all` and `RelationshipStore::list_all` to `platform/repository` to support index construction, and refactored `list_by_object` to reuse `list_all` rather than duplicating enumeration. Built with MSVC 19.51 via CMake/Ninja; `oep_search_engine_tests` (covering exact/partial/case-insensitive matches across name, description, author, tags, and object type for objects and relationship type/description/author for relationships, missing-index and empty-repository handling, empty-query rejection, determinism across repeated searches, and index rebuild after object removal) passed via CTest alongside the existing three suites (4/4 suites). `oep init` re-verified unaffected. Sprint 006 acceptance criteria are satisfied.

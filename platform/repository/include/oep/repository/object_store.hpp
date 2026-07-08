@@ -2,6 +2,7 @@
 
 #include <filesystem>
 #include <string>
+#include <vector>
 
 #include "oep/repository/engineering_object.hpp"
 
@@ -16,6 +17,12 @@ struct LoadObjectResult {
     bool success = false;
     std::string error;
     EngineeringObject object;
+};
+
+struct ListObjectsResult {
+    bool success = false;
+    std::string error;
+    std::vector<EngineeringObject> objects;
 };
 
 // Stores Engineering Objects as individual JSON files within a directory,
@@ -36,6 +43,10 @@ public:
     ObjectResult update(EngineeringObject object) const;
 
     ObjectResult remove(const std::string& object_id) const;
+
+    // Enumerates every valid object stored in this store. Files that are
+    // not valid Engineering Objects (e.g. corrupt or mid-write) are skipped.
+    ListObjectsResult list_all() const;
 
 private:
     std::filesystem::path root_;

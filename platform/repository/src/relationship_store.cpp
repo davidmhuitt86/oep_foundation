@@ -211,6 +211,22 @@ RelationshipResult RelationshipStore::remove(const std::string& relationship_id)
 }
 
 ListRelationshipsResult RelationshipStore::list_by_object(const std::string& object_id) const {
+    const ListRelationshipsResult all = list_all();
+    if (!all.success) {
+        return all;
+    }
+
+    std::vector<Relationship> matching;
+    for (const Relationship& relationship : all.relationships) {
+        if (relationship.source_object_id == object_id || relationship.target_object_id == object_id) {
+            matching.push_back(relationship);
+        }
+    }
+
+    return {true, "", matching};
+}
+
+ListRelationshipsResult RelationshipStore::list_all() const {
     std::vector<Relationship> relationships;
 
     std::error_code error_code;
@@ -227,10 +243,7 @@ ListRelationshipsResult RelationshipStore::list_by_object(const std::string& obj
         if (!parsed.success) {
             continue; // skip files that are not valid relationships
         }
-        if (parsed.relationship.source_object_id == object_id ||
-            parsed.relationship.target_object_id == object_id) {
-            relationships.push_back(parsed.relationship);
-        }
+        relationships.push_back(parsed.relationship);
     }
 
     if (error_code) {

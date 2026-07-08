@@ -52,6 +52,10 @@ public:
     // Enumerates every relationship where `object_id` is the source or the target.
     ListRelationshipsResult list_by_object(const std::string& object_id) const;
 
+    // Enumerates every valid relationship stored in this store. Files that
+    // are not valid relationships (e.g. corrupt or mid-write) are skipped.
+    ListRelationshipsResult list_all() const;
+
 private:
     std::filesystem::path root_;
     ObjectStore objects_;

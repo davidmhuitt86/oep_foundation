@@ -227,4 +227,31 @@ ObjectResult ObjectStore::remove(const std::string& object_id) const {
     return {true, ""};
 }
 
+ListObjectsResult ObjectStore::list_all() const {
+    std::vector<EngineeringObject> objects;
+
+    std::error_code error_code;
+    if (!std::filesystem::exists(root_, error_code)) {
+        return {true, "", objects};
+    }
+
+    for (const std::filesystem::directory_entry& entry :
+         std::filesystem::directory_iterator(root_, error_code)) {
+        if (!entry.is_regular_file() || entry.path().extension() != ".json") {
+            continue;
+        }
+        const ParsedObject parsed = read_object_file(entry.path());
+        if (!parsed.success) {
+            continue; // skip files that are not valid Engineering Objects
+        }
+        objects.push_back(parsed.object);
+    }
+
+    if (error_code) {
+        return {false, "could not enumerate '" + root_.string() + "': " + error_code.message(), {}};
+    }
+
+    return {true, "", objects};
+}
+
 } // namespace oep::repository
