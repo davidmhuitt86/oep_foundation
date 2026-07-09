@@ -4,8 +4,10 @@
 #include <vector>
 
 #include "oep/cli/command_registry.hpp"
+#include "commands/export_command.hpp"
 #include "commands/graph_command.hpp"
 #include "commands/help_command.hpp"
+#include "commands/import_command.hpp"
 #include "commands/init_command.hpp"
 #include "commands/object_command.hpp"
 #include "commands/open_command.hpp"
@@ -28,6 +30,8 @@ int main(int argc, char** argv) {
     registry.register_command(std::make_unique<oep::cli::commands::RelationshipCommand>());
     registry.register_command(std::make_unique<oep::cli::commands::SearchCommand>());
     registry.register_command(std::make_unique<oep::cli::commands::GraphCommand>());
+    registry.register_command(std::make_unique<oep::cli::commands::ExportCommand>());
+    registry.register_command(std::make_unique<oep::cli::commands::ImportCommand>());
     registry.register_command(std::make_unique<oep::cli::commands::HelpCommand>(registry));
 
     std::vector<std::string> args(argv + 1, argv + argc);

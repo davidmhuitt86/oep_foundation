@@ -1,5 +1,8 @@
 #include "oep/runtime/foundation_runtime.hpp"
 
+#include "oep/exchange/repository_exporter.hpp"
+#include "oep/exchange/repository_importer.hpp"
+
 namespace oep::runtime {
 
 std::string to_string(RuntimeState state) {
@@ -158,6 +161,30 @@ const oep::validation::RepositoryValidator* FoundationRuntime::validator() const
 
 const oep::packages::PackageManager* FoundationRuntime::package_manager() const {
     return state_ == RuntimeState::RepositoryOpen ? &(*packages_) : nullptr;
+}
+
+RuntimeExportResult FoundationRuntime::export_repository(const std::filesystem::path& output_file,
+                                                           bool include_packages) const {
+    if (state_ != RuntimeState::RepositoryOpen) {
+        return {false, "no repository is currently open", {}};
+    }
+
+    const oep::exchange::ExportResult result = oep::exchange::export_repository(
+        *metadata_, *objects_, *relationships_, *audit_, include_packages ? &(*packages_) : nullptr, output_file);
+    if (!result.success) {
+        return {false, result.error, result.manifest};
+    }
+    return {true, "", result.manifest};
+}
+
+RuntimeImportResult FoundationRuntime::import_repository(const std::filesystem::path& archive_file,
+                                                          const std::filesystem::path& destination,
+                                                          bool overwrite) const {
+    const oep::exchange::ImportResult result = oep::exchange::import_repository(archive_file, destination, overwrite);
+    if (!result.success) {
+        return {false, result.error, result.manifest};
+    }
+    return {true, "", result.manifest};
 }
 
 } // namespace oep::runtime

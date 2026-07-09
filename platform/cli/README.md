@@ -27,6 +27,8 @@ Command logic is built as a static library, `oep_cli_core` (see `CMakeLists.txt`
 - `oep relationship create|list|show|delete` — create, list, show, and delete Relationships (`--repository <path>` optional, defaults to the current working directory)
 - `oep search [objects|relationships] <query>` — search Engineering Objects and/or Relationships, with `--type`/`--author`/`--tag` filters applied after the Search Engine runs
 - `oep graph neighbors|traverse|path` — explore Engineering Objects through their Relationships (BFS/DFS traversal, path existence)
+- `oep export <output-file>` — export the repository to a single deterministic archive (`--include-packages` optional)
+- `oep import <archive-file>` — reconstruct a repository from an archive (`--destination`/`--overwrite` optional)
 
 See [platform/runtime/CLI_USAGE.md](../runtime/CLI_USAGE.md) for build instructions, example sessions, and troubleshooting.
 

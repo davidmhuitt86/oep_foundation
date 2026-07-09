@@ -178,6 +178,31 @@ LoadObjectResult ObjectStore::create(EngineeringObject object) const {
     return {true, "", object};
 }
 
+LoadObjectResult ObjectStore::restore(EngineeringObject object) const {
+    const std::vector<std::string> errors = validate_object(object);
+    if (!errors.empty()) {
+        return {false, "refusing to restore invalid object: " + join_errors(errors), {}};
+    }
+
+    std::error_code error_code;
+    std::filesystem::create_directories(root_, error_code);
+    if (error_code) {
+        return {false, "could not create '" + root_.string() + "': " + error_code.message(), {}};
+    }
+
+    const std::filesystem::path path = path_for(object.object_id);
+    if (std::filesystem::exists(path)) {
+        return {false, "an object with id '" + object.object_id + "' already exists", {}};
+    }
+
+    const ObjectResult write_result = write_object_file(path, object);
+    if (!write_result.success) {
+        return {false, write_result.error, {}};
+    }
+
+    return {true, "", object};
+}
+
 LoadObjectResult ObjectStore::load(const std::string& object_id) const {
     const std::filesystem::path path = path_for(object_id);
     if (!std::filesystem::exists(path)) {

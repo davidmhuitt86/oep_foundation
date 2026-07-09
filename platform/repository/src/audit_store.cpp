@@ -146,6 +146,31 @@ RecordEventResult AuditStore::record_event(AuditEvent event) const {
     return {true, "", event};
 }
 
+RecordEventResult AuditStore::restore(AuditEvent event) const {
+    const std::vector<std::string> errors = validate_audit_event(event);
+    if (!errors.empty()) {
+        return {false, "refusing to restore invalid audit event: " + join_errors(errors), {}};
+    }
+
+    std::error_code error_code;
+    std::filesystem::create_directories(root_, error_code);
+    if (error_code) {
+        return {false, "could not create '" + root_.string() + "': " + error_code.message(), {}};
+    }
+
+    const std::filesystem::path path = path_for(event.event_id);
+    if (std::filesystem::exists(path)) {
+        return {false, "an audit event with id '" + event.event_id + "' already exists", {}};
+    }
+
+    const AuditResult write_result = write_event_file(path, event);
+    if (!write_result.success) {
+        return {false, write_result.error, {}};
+    }
+
+    return {true, "", event};
+}
+
 ListAuditEventsResult AuditStore::list_events() const {
     std::vector<AuditEvent> events;
 

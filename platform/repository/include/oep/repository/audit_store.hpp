@@ -45,6 +45,12 @@ public:
     // Objects or Relationships.
     AuditResult clear() const;
 
+    // Writes `event` exactly as given — no field is regenerated — for
+    // reconstructing a repository's audit log from an export archive
+    // (OEP-SPEC-018-REPOSITORY_IMPORT), not for ordinary event
+    // recording. Fails if an event with the same ID already exists.
+    RecordEventResult restore(AuditEvent event) const;
+
 private:
     std::filesystem::path root_;
     std::filesystem::path path_for(const std::string& event_id) const;

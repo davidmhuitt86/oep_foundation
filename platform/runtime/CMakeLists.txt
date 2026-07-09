@@ -6,4 +6,4 @@ add_library(oep_runtime STATIC
 
 target_include_directories(oep_runtime PUBLIC include)
 target_compile_features(oep_runtime PUBLIC cxx_std_23)
-target_link_libraries(oep_runtime PUBLIC oep_repository oep_search oep_validation oep_packages)
+target_link_libraries(oep_runtime PUBLIC oep_repository oep_search oep_validation oep_packages oep_exchange)

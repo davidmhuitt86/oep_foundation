@@ -62,6 +62,15 @@ public:
     // excluded from `objects` and reported in `invalid_entries`.
     ListObjectsResult list_all() const;
 
+    // Writes `object` exactly as given — unlike create(), no field is
+    // regenerated or overwritten (object_id, timestamps, etc. are all
+    // taken from `object` verbatim) — and does not record an audit
+    // event, since restoring history is not creating new history. For
+    // reconstructing a repository from an export archive
+    // (OEP-SPEC-018-REPOSITORY_IMPORT), not for ordinary object
+    // creation. Fails if an object with the same ID already exists.
+    LoadObjectResult restore(EngineeringObject object) const;
+
 private:
     std::filesystem::path root_;
     AuditStore audit_;

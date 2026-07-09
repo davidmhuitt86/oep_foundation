@@ -195,7 +195,7 @@ In Progress
 
 CLI
 
-Complete (v0.1.0 — `version`/`init`/`open`/`validate`/`packages`/`status`/`object`/`relationship`/`search`/`graph`/`help`, per OEP-SPEC-012/013/014/015/016; Runtime-backed, no session persistence across invocations)
+Complete (v0.1.0 — `version`/`init`/`open`/`validate`/`packages`/`status`/`object`/`relationship`/`search`/`graph`/`export`/`import`/`help`, per OEP-SPEC-012 through OEP-SPEC-018; Runtime-backed, no session persistence across invocations)
 
 Foundation Generator
 
@@ -235,7 +235,7 @@ Not Started
 
 Exchange
 
-Not Started
+Complete (repository export/import — `ExportManifest`, `export_repository`, `import_repository` — per OEP-SPEC-017/018)
 
 Installation Studio
 

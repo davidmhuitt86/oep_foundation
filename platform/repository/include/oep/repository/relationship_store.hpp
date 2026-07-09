@@ -67,6 +67,14 @@ public:
     // from `relationships` and reported in `invalid_entries`.
     ListRelationshipsResult list_all() const;
 
+    // Writes `relationship` exactly as given — no field is regenerated,
+    // and no audit event is recorded — after verifying both endpoint
+    // objects exist. For reconstructing a repository from an export
+    // archive (OEP-SPEC-018-REPOSITORY_IMPORT), not for ordinary
+    // relationship creation. Fails if a relationship with the same ID
+    // already exists.
+    LoadRelationshipResult restore(Relationship relationship) const;
+
 private:
     std::filesystem::path root_;
     ObjectStore objects_;

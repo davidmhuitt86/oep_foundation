@@ -1,0 +1,12 @@
+cmake_minimum_required(VERSION 3.25)
+
+add_library(oep_exchange STATIC
+    src/export_manifest.cpp
+    src/archive_codec.cpp
+    src/repository_exporter.cpp
+    src/repository_importer.cpp
+)
+
+target_include_directories(oep_exchange PUBLIC include)
+target_compile_features(oep_exchange PUBLIC cxx_std_23)
+target_link_libraries(oep_exchange PUBLIC oep_repository oep_packages)

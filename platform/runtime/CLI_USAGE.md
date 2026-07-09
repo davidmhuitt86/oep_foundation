@@ -59,6 +59,8 @@ Running `oep` with no arguments, or with `--help`/`-h`, shows the help listing.
 | relationship | `oep relationship <create\|list\|show\|delete> [arguments] [--repository <path>]` | Create, list, show, and delete Relationships |
 | search | `oep search [objects\|relationships] <query> [--type <type>] [--author <author>] [--tag <tag>] [--repository <path>]` | Search Engineering Objects and Relationships |
 | graph | `oep graph <neighbors\|traverse\|path> <object-id> [<target-object-id>] [--algorithm bfs\|dfs] [--repository <path>]` | Explore Engineering Objects through their Relationships |
+| export | `oep export <output-file> [--include-packages] [--repository <path>]` | Export the repository to a single deterministic archive |
+| import | `oep import <archive-file> [--destination <path>] [--overwrite]` | Reconstruct a repository from an exported archive |
 | help | `oep help` | Display available commands |
 
 `validate`, `packages`, and `status` default to the current working directory when no repository path is given. `open` and `init` require an explicit argument. `object` and `relationship` subcommands default to the current working directory unless `--repository <path>` is given — a flag rather than a positional argument, since their `show`/`delete` subcommands already use the one positional slot for the object/relationship ID.
@@ -112,6 +114,19 @@ Object results show Object ID, Object Type, Name, Match Score, and Match Locatio
 | path | `oep graph path <source-object-id> <target-object-id> [--repository <path>]` | Report whether a path exists between two objects |
 
 `traverse` defaults to Breadth-First Search (BFS); pass `--algorithm dfs` for Depth-First Search. Both algorithms are implemented entirely by `GraphEngine` (see `platform/repository`) — the CLI only formats what it returns. `neighbors` reports Neighbor Object ID/Type/Name and the connecting Relationship Type. `traverse` reports each visited object in traversal order, numbered, with its Object ID/Type/Name. `path` reports only `Path Found` or `No Path Found` — there is no shortest-path computation.
+
+### Export and import commands
+
+| Command | Syntax | Description |
+|---|---|---|
+| export | `oep export <output-file> [--include-packages] [--repository <path>]` | Export the currently open repository to a single archive file |
+| import | `oep import <archive-file> [--destination <path>] [--overwrite]` | Reconstruct a repository from an archive |
+
+**Export** produces a single deterministic JSON archive (not a zip/tar — a JSON document is sufficient to be "a single archive" without adding a compression-library dependency) containing: an Export Manifest (export version, timestamp, repository ID/version, object/relationship/package counts), Repository Metadata, every Engineering Object, every Relationship, the full Audit Log, and — only if `--include-packages` is given — every currently `Loaded` package's manifest. `--repository` defaults to the current working directory, matching every other command.
+
+**Import** validates the entire archive (JSON well-formedness, export manifest fields, a supported `exportVersion`, and repository metadata validity) *before* writing anything to `--destination`, so a corrupt or incompatible archive never partially populates a repository. `--destination` defaults to the current working directory. If `--destination` already exists and is non-empty, import fails unless `--overwrite` is given, in which case the existing contents are removed first. Every restored object, relationship, and audit event keeps its exact original ID and timestamps — import never regenerates identifiers.
+
+Only export archives produced by this same build's export format version are accepted; a mismatched `exportVersion` is rejected with a descriptive error rather than attempting a best-effort import.
 
 ---
 
@@ -290,6 +305,66 @@ No Path Found
 
 `D` was never connected to anything, so it doesn't appear in `A`'s traversal and has no path to `A`.
 
+### Exporting and importing a repository
+
+```text
+$ oep object create --type Document --name "Manual" --author Jane --tags docs
+Created object '8eec9074-9ecf-455a-994c-e4127e229aab' (Document) 'Manual'
+
+$ oep object create --type Component --name "Coil"
+Created object 'c8c9aa2d-a066-429e-ba20-940e8dcfa1ba' (Component) 'Coil'
+
+$ oep relationship create --source 8eec9074-9ecf-455a-994c-e4127e229aab --target c8c9aa2d-a066-429e-ba20-940e8dcfa1ba --type Documents
+Created relationship '...' (Documents) '8eec9074-...' -> 'c8c9aa2d-...'
+
+$ oep export ../backup.json
+Exported repository to '../backup.json'
+  Objects:       2
+  Relationships: 1
+  Packages:      0
+
+$ cd ..
+$ oep import backup.json --destination restored-workshop
+Imported repository to 'restored-workshop'
+  Objects:       2
+  Relationships: 1
+  Packages:      0
+
+$ cd restored-workshop
+$ oep object show 8eec9074-9ecf-455a-994c-e4127e229aab
+Object ID:        8eec9074-9ecf-455a-994c-e4127e229aab
+Object Type:      Document
+Name:             Manual
+Description:      
+Author:           Jane
+Tags:             docs
+Version:          1.0.0
+Created:          2026-07-09T04:17:38.651Z
+Last Modified:    2026-07-09T04:17:38.651Z
+```
+
+The restored object's ID, author, tags, and both timestamps are exactly what was originally created — import never regenerates identifiers.
+
+Attempting to import into a destination that already has content fails safely, and `--overwrite` replaces it:
+
+```text
+$ oep import backup.json --destination restored-workshop
+oep: import failed: destination 'restored-workshop' already exists (use --overwrite)
+
+$ oep import backup.json --destination restored-workshop --overwrite
+Imported repository to 'restored-workshop'
+  Objects:       2
+  Relationships: 1
+  Packages:      0
+```
+
+An archive that isn't valid JSON, or that declares an unsupported export version, is rejected the same way:
+
+```text
+$ oep import corrupt.json --destination somewhere
+oep: import failed: archive 'corrupt.json' is not valid JSON: invalid literal at offset 0
+```
+
 ### An invalid or missing repository
 
 ```text
@@ -356,6 +431,10 @@ Packages are discovered under the repository's top-level `packages/` directory; 
 - `oep graph` treats every relationship as connecting its two objects bidirectionally for traversal purposes, regardless of which end is `sourceObjectId` vs. `targetObjectId` (this mirrors `GraphEngine`'s own behavior, not a CLI-specific choice).
 - `oep graph path` reports only whether a path exists — there is no shortest-path computation, path visualization, or listing of the relationships along the way.
 - `oep graph traverse` supports BFS and DFS only; there is no weighted traversal or interactive/step-by-step exploration.
+- The export archive is a single JSON file, not a compressed/binary container — there is no encryption, and large repositories will produce correspondingly large archive files.
+- `oep export`/`oep import` do not support cloud synchronization, a package registry, incremental (partial) export, merge operations, or conflict resolution — import always reconstructs a whole repository from a whole archive.
+- `oep import` restores package *manifests* only (writing `packages/<packageId>/package.json`); it does not restore any other files a package directory might contain, since `PackageManager` itself only ever inspects `package.json`.
+- Archives are only accepted from the same export format version this build produces (`exportVersion` must match exactly) — there is no forward/backward compatibility handling across export format versions yet.
 
 ---
 

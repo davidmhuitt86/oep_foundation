@@ -2,7 +2,7 @@
 # CURRENT_SPRINT.md
 ## Open Engineering Platform (OEP)
 
-Sprint: 016
+Sprint: 017-018
 
 Status: Active
 
@@ -10,7 +10,7 @@ Status: Active
 
 # Sprint Name
 
-Repository Graph CLI Commands
+Repository Export & Import (Work Package 009)
 
 ---
 
@@ -259,3 +259,19 @@ Added `oep search [objects|relationships] <query>` to `platform/cli`, per OEP-SP
 # Task 000016 — Verified Complete
 
 Extended `FoundationRuntime` with a sixth registered service, `graph_engine()`, built via `GraphEngine::build_graph` during `open_repository` exactly the way `SearchEngine` already is — this was a real gap: the spec required graph commands to never construct `GraphEngine` directly, but Runtime never exposed one at all until now. Added `oep graph neighbors|traverse|path` to `platform/cli`, per OEP-SPEC-016-GRAPH_COMMANDS, each subcommand a thin layer over the new accessor: `neighbors` lists directly connected objects with their relationship type; `traverse` supports `--algorithm bfs` (default) / `dfs`, delegating entirely to `GraphEngine`'s existing traversal; `path` reports only Path Found / No Path Found. Updated `platform/runtime/CLI_USAGE.md` and `platform/runtime/README.md` (service list) with the graph command/filter tables and a full four-object example session with real captured output, including a disconnected node. Built with MSVC 19.51 via CMake/Ninja; `oep_graph_command_tests` (10 cases: neighbor listing, an isolated object reporting none, BFS and DFS traversal over a connected component that correctly excludes a disconnected node, path found/not-found, an invalid object ID, an empty repository, an invalid repository, and an unknown subcommand) passed via CTest alongside the existing thirteen suites (14/14 suites). Manually smoke-tested neighbors/traverse (both algorithms)/path against a real four-object, two-relationship graph, including the disconnected-node case. `oep init` re-verified unaffected. Sprint 016 acceptance criteria are satisfied.
+
+---
+
+# Work Package 009 (Task 000017 + Task 000018) — Verified Complete
+
+Filled in `platform/exchange` (previously a scaffolded, empty module matching PROJECT_MEMORY's "Exchange distributes Repository content" description) with `ExportManifest`, `export_repository`, and `import_repository`, per OEP-SPEC-017-REPOSITORY_EXPORT and OEP-SPEC-018-REPOSITORY_IMPORT. The export archive is a single deterministic JSON document (metadata, objects, relationships, audit log, optional package manifests, and the export manifest itself) rather than a zip/tar, avoiding a new compression-library dependency while still satisfying "a single archive."
+
+Along the way, added `restore()` to `ObjectStore`, `RelationshipStore`, and `AuditStore` (additive-only — existing `create`/`update`/`remove`/`list_all` signatures and behavior are unchanged). This was necessary, not optional: `create()` always regenerates `lastModifiedUtc` and would corrupt round-trip fidelity if reused for import, so faithful reconstruction needed a write-exactly-as-given path that records no audit event (restoring history is not creating new history).
+
+Extended `FoundationRuntime` with `export_repository` (requires an open repository, delegates entirely to `oep::exchange::export_repository`) and `import_repository` (does not require or use an open repository — it targets a destination to create — but is still exposed on the Runtime so import continues to execute "entirely through Foundation Runtime" as both specs require, rather than the CLI reconstructing repository contents directly).
+
+Added `oep export <output-file> [--include-packages] [--repository <path>]` and `oep import <archive-file> [--destination <path>] [--overwrite]` to `platform/cli`. Generalized the `--repository`-only flag helper (from Sprint 014) into `extract_path_option`/`extract_flag`, non-breaking, so `--include-packages`, `--destination`, and `--overwrite` all share the same primitive `extract_repository_path` is now built on.
+
+Updated `platform/runtime/CLI_USAGE.md` (export/import command tables, archive format and validation-order explanation, a full export→import round-trip example with real captured output including exact ID/timestamp preservation, overwrite-rejection and invalid-archive examples, and new limitations), `platform/runtime/README.md` (service list), `platform/cli/README.md`, and `platform/exchange/README.md` (from Placeholder to Foundation).
+
+Built with MSVC 19.51 via CMake/Ninja after a full clean rebuild (`rm -rf build` then reconfigure); `oep_repository_exporter_tests` (4 cases), `oep_repository_importer_tests` (7 cases: successful import preserving identity, overwrite rejection/acceptance, invalid JSON, missing archive, corrupted manifest, unsupported export version, package restoration), `oep_export_command_tests` (4 cases), and `oep_import_command_tests` (5 cases, including a full round-trip through the real CLI commands) all passed via CTest alongside the existing fourteen suites (18/18 suites). One test bug was caught and fixed during verification: a test helper's `sample_metadata()` never set `last_modified_utc`, correctly tripping `validate_metadata`'s required-field check during import — not an exchange-module bug. Manually smoke-tested the complete export→import round trip (exact object ID/author/tags/timestamps preserved), overwrite protection, and invalid-archive rejection against real generated repositories. `oep init` re-verified unaffected. Sprint 017/018 acceptance criteria are satisfied.

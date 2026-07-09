@@ -5,6 +5,7 @@
 #include <string>
 #include <vector>
 
+#include "oep/exchange/export_manifest.hpp"
 #include "oep/packages/package_manager.hpp"
 #include "oep/repository/audit_store.hpp"
 #include "oep/repository/graph_engine.hpp"
@@ -55,6 +56,18 @@ struct RuntimeRepositoryPathResult {
     std::filesystem::path path;
 };
 
+struct RuntimeExportResult {
+    bool success = false;
+    std::string error;
+    oep::exchange::ExportManifest manifest;
+};
+
+struct RuntimeImportResult {
+    bool success = false;
+    std::string error;
+    oep::exchange::ExportManifest manifest;
+};
+
 // The single entry point through which applications interact with
 // Foundation. FoundationRuntime coordinates the Repository, Search,
 // Validation, and Package Manager subsystems; it never reimplements
@@ -97,6 +110,22 @@ public:
     const oep::repository::GraphEngine* graph_engine() const;
     const oep::validation::RepositoryValidator* validator() const;
     const oep::packages::PackageManager* package_manager() const;
+
+    // Exports the currently open repository to a single deterministic
+    // archive, per OEP-SPEC-017-REPOSITORY_EXPORT. Requires a
+    // repository to be open; delegates entirely to
+    // oep::exchange::export_repository.
+    RuntimeExportResult export_repository(const std::filesystem::path& output_file, bool include_packages) const;
+
+    // Reconstructs a repository at `destination` from a previously
+    // exported archive, per OEP-SPEC-018-REPOSITORY_IMPORT. Does not
+    // require (and does not use) a currently open repository —
+    // `destination` is a location to create, not one to open — but is
+    // exposed on FoundationRuntime so import, like every other
+    // repository operation, executes through the Runtime rather than
+    // the CLI reconstructing repository contents directly.
+    RuntimeImportResult import_repository(const std::filesystem::path& archive_file,
+                                           const std::filesystem::path& destination, bool overwrite) const;
 
 private:
     RuntimeState state_ = RuntimeState::Uninitialized;

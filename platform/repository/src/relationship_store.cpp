@@ -158,6 +158,38 @@ LoadRelationshipResult RelationshipStore::create(Relationship relationship) cons
     return {true, "", relationship};
 }
 
+LoadRelationshipResult RelationshipStore::restore(Relationship relationship) const {
+    const std::vector<std::string> errors = validate_relationship(relationship);
+    if (!errors.empty()) {
+        return {false, "refusing to restore invalid relationship: " + join_errors(errors), {}};
+    }
+
+    if (!objects_.load(relationship.source_object_id).success) {
+        return {false, "sourceObjectId '" + relationship.source_object_id + "' does not exist", {}};
+    }
+    if (!objects_.load(relationship.target_object_id).success) {
+        return {false, "targetObjectId '" + relationship.target_object_id + "' does not exist", {}};
+    }
+
+    std::error_code error_code;
+    std::filesystem::create_directories(root_, error_code);
+    if (error_code) {
+        return {false, "could not create '" + root_.string() + "': " + error_code.message(), {}};
+    }
+
+    const std::filesystem::path path = path_for(relationship.relationship_id);
+    if (std::filesystem::exists(path)) {
+        return {false, "a relationship with id '" + relationship.relationship_id + "' already exists", {}};
+    }
+
+    const RelationshipResult write_result = write_relationship_file(path, relationship);
+    if (!write_result.success) {
+        return {false, write_result.error, {}};
+    }
+
+    return {true, "", relationship};
+}
+
 LoadRelationshipResult RelationshipStore::load(const std::string& relationship_id) const {
     const std::filesystem::path path = path_for(relationship_id);
     if (!std::filesystem::exists(path)) {

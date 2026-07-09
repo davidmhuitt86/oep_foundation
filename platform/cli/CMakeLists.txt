@@ -2,8 +2,10 @@ cmake_minimum_required(VERSION 3.25)
 
 add_library(oep_cli_core STATIC
     src/command_registry.cpp
+    src/commands/export_command.cpp
     src/commands/graph_command.cpp
     src/commands/help_command.cpp
+    src/commands/import_command.cpp
     src/commands/init_command.cpp
     src/commands/object_command.cpp
     src/commands/open_command.cpp
