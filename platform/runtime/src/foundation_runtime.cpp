@@ -187,4 +187,97 @@ RuntimeImportResult FoundationRuntime::import_repository(const std::filesystem::
     return {true, "", result.manifest};
 }
 
+RuntimeCreateTemplateResult FoundationRuntime::create_template(const std::filesystem::path& templates_dir,
+                                                                const std::string& template_name,
+                                                                const std::string& description,
+                                                                const std::string& author,
+                                                                const std::vector<std::string>& tags,
+                                                                bool include_packages) const {
+    if (state_ != RuntimeState::RepositoryOpen) {
+        return {false, "no repository is currently open", {}};
+    }
+
+    const oep::exchange::TemplateStore store(templates_dir);
+    const oep::exchange::CreateTemplateResult result =
+        store.create_template(template_name, description, author, tags, foundation_version_, *objects_,
+                               *relationships_, include_packages ? &(*packages_) : nullptr);
+    if (!result.success) {
+        return {false, result.error, result.manifest};
+    }
+    return {true, "", result.manifest};
+}
+
+RuntimeListTemplatesResult FoundationRuntime::list_templates(const std::filesystem::path& templates_dir) const {
+    const oep::exchange::TemplateStore store(templates_dir);
+    const oep::exchange::ListTemplatesResult result = store.list_templates();
+    if (!result.success) {
+        return {false, result.error, {}};
+    }
+    return {true, "", result.templates};
+}
+
+RuntimeInstantiateTemplateResult FoundationRuntime::instantiate_template(const std::filesystem::path& templates_dir,
+                                                                          const std::string& template_id,
+                                                                          const std::filesystem::path& destination,
+                                                                          const std::string& new_repository_name) const {
+    const oep::exchange::TemplateStore store(templates_dir);
+    const oep::exchange::InstantiateTemplateResult result =
+        store.instantiate_template(template_id, destination, new_repository_name);
+    if (!result.success) {
+        return {false, result.error};
+    }
+    return {true, ""};
+}
+
+RuntimeBatchCreateResult FoundationRuntime::execute_batch_create(const std::string& batch_json) const {
+    if (state_ != RuntimeState::RepositoryOpen) {
+        return {false, "no repository is currently open", 0, 0};
+    }
+
+    const oep::repository::BatchParseResult parsed = oep::repository::parse_batch_create_request(batch_json);
+    if (!parsed.success) {
+        return {false, parsed.error, 0, 0};
+    }
+
+    const oep::repository::BatchCreateResult result =
+        oep::repository::execute_batch_create(parsed.request, *objects_, *relationships_);
+    if (!result.success) {
+        return {false, result.error, result.objects_created, result.relationships_created};
+    }
+    return {true, "", result.objects_created, result.relationships_created};
+}
+
+RuntimeBatchDeleteResult FoundationRuntime::execute_batch_delete(const std::string& batch_json) const {
+    if (state_ != RuntimeState::RepositoryOpen) {
+        return {false, "no repository is currently open", 0, 0};
+    }
+
+    const oep::repository::BatchDeleteParseResult parsed = oep::repository::parse_batch_delete_request(batch_json);
+    if (!parsed.success) {
+        return {false, parsed.error, 0, 0};
+    }
+
+    const oep::repository::BatchDeleteResult result =
+        oep::repository::execute_batch_delete(parsed.request, *objects_, *relationships_);
+    if (!result.success) {
+        return {false, result.error, result.objects_deleted, result.relationships_deleted};
+    }
+    return {true, "", result.objects_deleted, result.relationships_deleted};
+}
+
+RuntimeBatchValidateResult FoundationRuntime::validate_batch_create(const std::string& batch_json) const {
+    if (state_ != RuntimeState::RepositoryOpen) {
+        return {false, "no repository is currently open", {}};
+    }
+
+    const oep::repository::BatchParseResult parsed = oep::repository::parse_batch_create_request(batch_json);
+    if (!parsed.success) {
+        return {false, parsed.error, {}};
+    }
+
+    const std::vector<std::string> findings =
+        oep::repository::validate_batch_create_request(parsed.request, *objects_);
+    return {true, "", findings};
+}
+
 } // namespace oep::runtime

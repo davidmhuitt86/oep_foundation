@@ -61,6 +61,8 @@ Running `oep` with no arguments, or with `--help`/`-h`, shows the help listing.
 | graph | `oep graph <neighbors\|traverse\|path> <object-id> [<target-object-id>] [--algorithm bfs\|dfs] [--repository <path>]` | Explore Engineering Objects through their Relationships |
 | export | `oep export <output-file> [--include-packages] [--repository <path>]` | Export the repository to a single deterministic archive |
 | import | `oep import <archive-file> [--destination <path>] [--overwrite]` | Reconstruct a repository from an exported archive |
+| template | `oep template <create\|list\|instantiate> [arguments] [--templates-dir <path>]` | Create, list, and instantiate Repository Templates |
+| batch | `oep batch <create\|delete\|validate> <input-file> [--repository <path>]` | Execute or validate a batch of object/relationship operations from a JSON file |
 | help | `oep help` | Display available commands |
 
 `validate`, `packages`, and `status` default to the current working directory when no repository path is given. `open` and `init` require an explicit argument. `object` and `relationship` subcommands default to the current working directory unless `--repository <path>` is given — a flag rather than a positional argument, since their `show`/`delete` subcommands already use the one positional slot for the object/relationship ID.
@@ -127,6 +129,54 @@ Object results show Object ID, Object Type, Name, Match Score, and Match Locatio
 **Import** validates the entire archive (JSON well-formedness, export manifest fields, a supported `exportVersion`, and repository metadata validity) *before* writing anything to `--destination`, so a corrupt or incompatible archive never partially populates a repository. `--destination` defaults to the current working directory. If `--destination` already exists and is non-empty, import fails unless `--overwrite` is given, in which case the existing contents are removed first. Every restored object, relationship, and audit event keeps its exact original ID and timestamps — import never regenerates identifiers.
 
 Only export archives produced by this same build's export format version are accepted; a mismatched `exportVersion` is rejected with a descriptive error rather than attempting a best-effort import.
+
+### Template commands
+
+| Subcommand | Syntax | Description |
+|---|---|---|
+| create | `oep template create --name <name> [--description <text>] [--author <name>] [--tags a,b,c] [--include-packages] [--repository <path>] [--templates-dir <path>]` | Capture the currently open repository into a new, reusable template |
+| list | `oep template list [--templates-dir <path>]` | List every valid template |
+| instantiate | `oep template instantiate <template-id> <new-repository-name> [--templates-dir <path>]` | Create a new repository from a template, under the current working directory |
+
+A template is a single JSON file, reusing the same archive format Export/Import already produce, plus its own Template Manifest (template ID, name, version, description, author, tags, Foundation version). `--templates-dir` defaults to the current working directory. `template list` silently excludes any template file that fails validation — a corrupt template never crashes the listing, it's simply absent from it. `template instantiate` validates the target template's manifest and content *before* writing anything; an invalid template is never instantiated. Instantiation always creates a **new, independent repository**: a freshly generated repository ID and the name you provide, but every object and relationship keeps its exact identifier from the template.
+
+### Batch commands
+
+| Subcommand | Syntax | Description |
+|---|---|---|
+| create | `oep batch create <input-file> [--repository <path>]` | Create a batch of objects and relationships from a JSON file |
+| delete | `oep batch delete <input-file> [--repository <path>]` | Delete a batch of objects and relationships from a JSON file |
+| validate | `oep batch validate <input-file> [--repository <path>]` | Validate a create-format batch file without executing it |
+
+`--repository` defaults to the current working directory. The CLI only reads the input file and passes its contents to `FoundationRuntime`; it never parses or manipulates repository contents directly — all parsing, validation, and execution happen in `BatchProcessor` (`platform/repository`).
+
+**Create-format input** (used by `create` and `validate`):
+
+```json
+{
+  "objects": [
+    {"ref": "manual", "type": "Document", "name": "Manual", "description": "...", "author": "Jane", "tags": ["docs"]}
+  ],
+  "relationships": [
+    {"source": "manual", "target": "coil", "type": "Documents", "author": "Jane", "description": "..."}
+  ]
+}
+```
+
+`ref` is a batch-local alias, not a real object ID — it lets a relationship in the same batch refer to an object also being created in that batch. `source`/`target` may be a `ref` from this batch or the real ID of an object that already exists in the repository. Every field but `ref`/`source`/`target`/`type`/`name` is optional.
+
+The full batch is validated before anything is created: duplicate `ref`s, missing `name`, unresolvable `source`/`target` references, and a `source` equal to its `target` are all reported. If validation finds any problem, **nothing is created** — not even the objects that were fine.
+
+**Delete-format input** (used by `delete`):
+
+```json
+{
+  "objectIds": ["044ba21d-85b2-4502-a5ea-3787fec41367"],
+  "relationshipIds": ["a1cc95de-a335-4231-9e59-2ce396f7863c"]
+}
+```
+
+Every listed ID is confirmed to exist before anything is deleted; if any ID is missing, **nothing is deleted**.
 
 ---
 
@@ -365,6 +415,77 @@ $ oep import corrupt.json --destination somewhere
 oep: import failed: archive 'corrupt.json' is not valid JSON: invalid literal at offset 0
 ```
 
+### Creating and instantiating a template
+
+```text
+$ oep object create --type Component --name "Standard Widget" --tags standard
+Created object 'fc89cf98-3340-44ed-b189-f4d791129586' (Component) 'Standard Widget'
+
+$ oep template create --name "Standard Kit" --description "A reusable starting point" --author Jane --tags starter --templates-dir ../templates
+Created template 'b1fd54c0-3bad-43a0-8224-f36acde73db4' ('Standard Kit')
+
+$ cd ..
+$ oep template list --templates-dir templates
+b1fd54c0-3bad-43a0-8224-f36acde73db4	Standard Kit	1.0.0
+
+$ oep template instantiate b1fd54c0-3bad-43a0-8224-f36acde73db4 new-workshop --templates-dir templates
+Instantiated template 'b1fd54c0-3bad-43a0-8224-f36acde73db4' as repository 'new-workshop' at /path/to/new-workshop
+
+$ cd new-workshop
+$ oep object list
+fc89cf98-3340-44ed-b189-f4d791129586	Component	Standard Widget	1.0.0
+
+$ oep status
+Foundation version: 0.1.0
+Runtime state: RepositoryOpen
+Repository: .
+Repository ID: 7b9527e4-ded6-4a2b-9e55-b0acbd4a5a4e
+Loaded packages: 0
+```
+
+`new-workshop` has its own, freshly generated repository ID (`7b9527e4-...`, different from the template's ID), but `Standard Widget` kept its exact original object ID from the template.
+
+### Batch creating, validating, and deleting
+
+```text
+$ cat kit.json
+{
+  "objects": [
+    {"ref": "manual", "type": "Document", "name": "Manual", "author": "Jane"},
+    {"ref": "coil", "type": "Component", "name": "Ignition Coil", "tags": ["electrical"]}
+  ],
+  "relationships": [
+    {"source": "manual", "target": "coil", "type": "Documents", "description": "docs the coil"}
+  ]
+}
+
+$ oep batch create kit.json
+Objects created:       2
+Relationships created: 1
+
+$ oep object list
+044ba21d-85b2-4502-a5ea-3787fec41367	Document	Manual	1.0.0
+7b9527e4-ded6-4a2b-9e55-b0acbd4a5a4e	Component	Ignition Coil	1.0.0
+
+$ cat bad-kit.json
+{
+  "objects": [
+    {"ref": "x", "type": "Component", "name": "A"},
+    {"ref": "x", "type": "Component", "name": "B"}
+  ]
+}
+
+$ oep batch validate bad-kit.json
+Batch is invalid:
+  duplicate ref 'x'
+
+$ oep batch delete delete.json
+Objects deleted:       1
+Relationships deleted: 0
+```
+
+A `validate` run that finds no problems reports `Batch is valid.` and exits `0`; a run that finds problems exits non-zero and lists every finding, without creating or deleting anything.
+
 ### An invalid or missing repository
 
 ```text
@@ -435,6 +556,12 @@ Packages are discovered under the repository's top-level `packages/` directory; 
 - `oep export`/`oep import` do not support cloud synchronization, a package registry, incremental (partial) export, merge operations, or conflict resolution — import always reconstructs a whole repository from a whole archive.
 - `oep import` restores package *manifests* only (writing `packages/<packageId>/package.json`); it does not restore any other files a package directory might contain, since `PackageManager` itself only ever inspects `package.json`.
 - Archives are only accepted from the same export format version this build produces (`exportVersion` must match exactly) — there is no forward/backward compatibility handling across export format versions yet.
+- There is no online template registry, template version upgrades, or template dependencies — `oep template` only creates, lists, and instantiates local template files.
+- `oep template instantiate` always creates the new repository under the current working directory (using the name you give it); there is no `--destination` flag yet.
+- Templates, like export archives, restore package manifests only, not arbitrary other package payload files.
+- `oep batch` supports `create`/`delete`/`validate` only; there is no `update`/`edit` batch operation, and `validate` only checks the create-format, not delete-format, input.
+- Batch input is plain JSON only, read from a local file — there is no streaming, chunking, or partial-batch execution; a batch either fully succeeds or fully fails.
+- The `ref` aliasing mechanism only resolves within a single batch file; it cannot reference a `ref` used in a previous, separate `oep batch create` invocation.
 
 ---
 

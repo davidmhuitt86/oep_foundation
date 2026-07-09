@@ -12,6 +12,7 @@ add_library(oep_repository STATIC
     src/graph_engine.cpp
     src/audit_event.cpp
     src/audit_store.cpp
+    src/batch_processor.cpp
 )
 
 target_include_directories(oep_repository PUBLIC include)

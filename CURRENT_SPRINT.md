@@ -2,15 +2,15 @@
 # CURRENT_SPRINT.md
 ## Open Engineering Platform (OEP)
 
-Sprint: 017-018
+Sprint: 019-020
 
-Status: Active
+Status: Complete
 
 ---
 
 # Sprint Name
 
-Repository Export & Import (Work Package 009)
+Repository Templates & Batch Operations (Work Package 010)
 
 ---
 
@@ -275,3 +275,15 @@ Added `oep export <output-file> [--include-packages] [--repository <path>]` and 
 Updated `platform/runtime/CLI_USAGE.md` (export/import command tables, archive format and validation-order explanation, a full export→import round-trip example with real captured output including exact ID/timestamp preservation, overwrite-rejection and invalid-archive examples, and new limitations), `platform/runtime/README.md` (service list), `platform/cli/README.md`, and `platform/exchange/README.md` (from Placeholder to Foundation).
 
 Built with MSVC 19.51 via CMake/Ninja after a full clean rebuild (`rm -rf build` then reconfigure); `oep_repository_exporter_tests` (4 cases), `oep_repository_importer_tests` (7 cases: successful import preserving identity, overwrite rejection/acceptance, invalid JSON, missing archive, corrupted manifest, unsupported export version, package restoration), `oep_export_command_tests` (4 cases), and `oep_import_command_tests` (5 cases, including a full round-trip through the real CLI commands) all passed via CTest alongside the existing fourteen suites (18/18 suites). One test bug was caught and fixed during verification: a test helper's `sample_metadata()` never set `last_modified_utc`, correctly tripping `validate_metadata`'s required-field check during import — not an exchange-module bug. Manually smoke-tested the complete export→import round trip (exact object ID/author/tags/timestamps preserved), overwrite protection, and invalid-archive rejection against real generated repositories. `oep init` re-verified unaffected. Sprint 017/018 acceptance criteria are satisfied.
+
+---
+
+# Work Package 010 (Task 000019 + Task 000020) — Verified Complete
+
+**Task 000019 — Repository Templates.** Added `TemplateManifest` (Template ID, Name, Version, Description, Author, Tags, Foundation Version) and `TemplateStore` (`create_template`/`list_templates`/`instantiate_template`) to `platform/exchange`, per OEP-SPEC-019-REPOSITORY_TEMPLATES. A template is a single JSON file reusing the same archive codec Export/Import already produce (extended with `TemplateManifest` marshaling) rather than a new format — a template is "a named, reusable archive with its own manifest." `create_template` validates the manifest before writing; `list_templates` silently excludes any file that fails validation rather than crashing the listing; `instantiate_template` fully loads and validates the template *before* touching the destination, rejects a non-empty existing destination, generates a **new** repository ID for the instantiated copy while restoring every object/relationship with its **exact original ID** via the `restore()` path added in Work Package 009. Extended `FoundationRuntime` with `create_template`/`list_templates`/`instantiate_template`, all delegating entirely to `TemplateStore`. Added `oep template create|list|instantiate` to `platform/cli`, reusing the shared `--repository`/path-option helpers and a new shared `split_csv` (extracted from `object_command`'s previously-duplicated `split_tags`, per the work package's pre-authorized shared refactoring).
+
+**Task 000020 — Batch Operations.** Added `BatchProcessor` to `platform/repository` (not `platform/exchange` — bulk CRUD against an *already-open* repository is Repository-domain business logic, like `RepositoryValidator`/`GraphEngine`, distinct from Export/Import/Templates' whole-repository packaging concern), per OEP-SPEC-020-BATCH_OPERATIONS. Defines a deterministic JSON batch format for both create (`objects`/`relationships`, with a batch-local `ref` alias so a relationship can reference an object created earlier in the same batch) and delete (`objectIds`/`relationshipIds`). `validate_batch_create_request` runs before any execution and reports duplicate refs, missing names, unresolvable source/target references, and self-referencing relationships, deterministically; `execute_batch_create`/`execute_batch_delete` both validate fully before writing anything — a batch with any problem creates or deletes **nothing**. Extended `FoundationRuntime` with `execute_batch_create`/`execute_batch_delete`/`validate_batch_create`, all requiring an open repository and taking raw JSON text so the CLI never touches parsed repository types directly. Added `oep batch create|delete|validate <input-file>` to `platform/cli`.
+
+Updated `platform/runtime/CLI_USAGE.md` (template and batch command tables, JSON format documentation, full example sessions with real captured output, new limitations for both), `platform/runtime/README.md`, `platform/cli/README.md`, `platform/repository/README.md`, and `platform/exchange/README.md`.
+
+Built with MSVC 19.51 via CMake/Ninja after a full clean rebuild (`rm -rf build` then reconfigure): 95/95 build steps succeeded. `oep_repository_template_tests` (5 cases: full create→list→instantiate workflow verifying new repository ID with preserved object IDs, instantiate rejecting a nonexistent template, instantiate rejecting an invalid manifest without partially creating the destination, list excluding a corrupt template file, list handling an empty/nonexistent directory), `oep_template_command_tests` (5 cases including a full CLI-level round trip), `oep_batch_processor_tests` (9 cases: malformed JSON rejection for both create and delete, unrecognized type rejection, successful create with in-batch ref resolution, duplicate-ref validation, unknown-reference validation, a failed validation creating nothing, successful delete, a failed delete deleting nothing), and `oep_batch_command_tests` (6 cases covering the full CLI surface) all passed via CTest alongside the existing eighteen suites (22/22 suites, 100% pass). Two compile-time issues were caught and fixed: a missing `#include "oep/repository/timestamp.hpp"` in `repository_template.cpp`, and a missing `#include <map>` plus a wrong include path for `json_value.hpp` in `batch_processor.cpp` (fixed proactively before the first build, based on the equivalent mistake's fix pattern from earlier in the session). Manually smoke-tested template create/list/instantiate (confirming the new repository ID while the object kept its original ID) and batch create/validate/delete (including in-batch ref resolution, duplicate-ref detection, and unknown-reference detection) against real generated repositories. `oep init` re-verified unaffected. Sprint 019/020 acceptance criteria are satisfied.

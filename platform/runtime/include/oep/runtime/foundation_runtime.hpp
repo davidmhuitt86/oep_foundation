@@ -6,8 +6,11 @@
 #include <vector>
 
 #include "oep/exchange/export_manifest.hpp"
+#include "oep/exchange/repository_template.hpp"
+#include "oep/exchange/template_manifest.hpp"
 #include "oep/packages/package_manager.hpp"
 #include "oep/repository/audit_store.hpp"
+#include "oep/repository/batch_processor.hpp"
 #include "oep/repository/graph_engine.hpp"
 #include "oep/repository/metadata.hpp"
 #include "oep/repository/object_store.hpp"
@@ -68,6 +71,46 @@ struct RuntimeImportResult {
     oep::exchange::ExportManifest manifest;
 };
 
+struct RuntimeCreateTemplateResult {
+    bool success = false;
+    std::string error;
+    oep::exchange::TemplateManifest manifest;
+};
+
+struct RuntimeListTemplatesResult {
+    bool success = false;
+    std::string error;
+    std::vector<oep::exchange::TemplateManifest> templates;
+};
+
+struct RuntimeInstantiateTemplateResult {
+    bool success = false;
+    std::string error;
+};
+
+struct RuntimeBatchCreateResult {
+    bool success = false;
+    std::string error;
+    int objects_created = 0;
+    int relationships_created = 0;
+};
+
+struct RuntimeBatchDeleteResult {
+    bool success = false;
+    std::string error;
+    int objects_deleted = 0;
+    int relationships_deleted = 0;
+};
+
+struct RuntimeBatchValidateResult {
+    // success is true iff the input parsed AND validated with zero
+    // findings — a structurally valid-but-non-empty-findings batch is
+    // reported via `findings`, not treated as an operational failure.
+    bool success = false;
+    std::string error;
+    std::vector<std::string> findings;
+};
+
 // The single entry point through which applications interact with
 // Foundation. FoundationRuntime coordinates the Repository, Search,
 // Validation, and Package Manager subsystems; it never reimplements
@@ -126,6 +169,42 @@ public:
     // the CLI reconstructing repository contents directly.
     RuntimeImportResult import_repository(const std::filesystem::path& archive_file,
                                            const std::filesystem::path& destination, bool overwrite) const;
+
+    // Captures the currently open repository into a new template
+    // stored under `templates_dir`, per OEP-SPEC-019-REPOSITORY_TEMPLATES.
+    // Requires a repository to be open.
+    RuntimeCreateTemplateResult create_template(const std::filesystem::path& templates_dir,
+                                                 const std::string& template_name, const std::string& description,
+                                                 const std::string& author, const std::vector<std::string>& tags,
+                                                 bool include_packages) const;
+
+    // Enumerates every valid template stored under `templates_dir`.
+    // Does not require an open repository.
+    RuntimeListTemplatesResult list_templates(const std::filesystem::path& templates_dir) const;
+
+    // Instantiates `template_id` from `templates_dir` into a brand-new
+    // repository at `destination`. Does not require (or use) a
+    // currently open repository, but remains on FoundationRuntime so
+    // instantiation, like every other repository operation, executes
+    // through the Runtime.
+    RuntimeInstantiateTemplateResult instantiate_template(const std::filesystem::path& templates_dir,
+                                                           const std::string& template_id,
+                                                           const std::filesystem::path& destination,
+                                                           const std::string& new_repository_name) const;
+
+    // Batch operations, per OEP-SPEC-020-BATCH_OPERATIONS. All three
+    // require an open repository. Every batch is fully parsed and
+    // validated before any execution begins; a validation failure
+    // creates/deletes nothing.
+    RuntimeBatchCreateResult execute_batch_create(const std::string& batch_json) const;
+    RuntimeBatchDeleteResult execute_batch_delete(const std::string& batch_json) const;
+
+    // Parses and validates a batch-create input without executing it.
+    // success is false only for a structural/operational problem
+    // (malformed JSON, no repository open); a structurally valid batch
+    // with validation findings still reports success = true, with the
+    // findings listed in `findings`.
+    RuntimeBatchValidateResult validate_batch_create(const std::string& batch_json) const;
 
 private:
     RuntimeState state_ = RuntimeState::Uninitialized;

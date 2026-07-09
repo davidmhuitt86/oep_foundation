@@ -195,7 +195,7 @@ In Progress
 
 CLI
 
-Complete (v0.1.0 — `version`/`init`/`open`/`validate`/`packages`/`status`/`object`/`relationship`/`search`/`graph`/`export`/`import`/`help`, per OEP-SPEC-012 through OEP-SPEC-018; Runtime-backed, no session persistence across invocations)
+Complete (v0.1.0 — `version`/`init`/`open`/`validate`/`packages`/`status`/`object`/`relationship`/`search`/`graph`/`export`/`import`/`template`/`batch`/`help`, per OEP-SPEC-012 through OEP-SPEC-020; Runtime-backed, no session persistence across invocations)
 
 Foundation Generator
 
@@ -235,7 +235,11 @@ Not Started
 
 Exchange
 
-Complete (repository export/import — `ExportManifest`, `export_repository`, `import_repository` — per OEP-SPEC-017/018)
+Complete (repository export/import — `ExportManifest`, `export_repository`, `import_repository` — per OEP-SPEC-017/018; Repository Templates — `TemplateManifest`, `TemplateStore` — per OEP-SPEC-019)
+
+Batch Operations
+
+Complete (`BatchProcessor` — validate-then-execute create/delete over a deterministic JSON batch format, in `platform/repository` — per OEP-SPEC-020)
 
 Installation Studio
 

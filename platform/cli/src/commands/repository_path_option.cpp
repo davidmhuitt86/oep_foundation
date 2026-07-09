@@ -1,5 +1,7 @@
 #include "repository_path_option.hpp"
 
+#include <sstream>
+
 namespace oep::cli::commands {
 
 std::filesystem::path extract_path_option(std::vector<std::string>& args, const std::string& flag_name) {
@@ -26,6 +28,18 @@ bool extract_flag(std::vector<std::string>& args, const std::string& flag_name) 
 
 std::filesystem::path extract_repository_path(std::vector<std::string>& args) {
     return extract_path_option(args, "--repository");
+}
+
+std::vector<std::string> split_csv(const std::string& csv) {
+    std::vector<std::string> values;
+    std::stringstream stream(csv);
+    std::string value;
+    while (std::getline(stream, value, ',')) {
+        if (!value.empty()) {
+            values.push_back(value);
+        }
+    }
+    return values;
 }
 
 } // namespace oep::cli::commands

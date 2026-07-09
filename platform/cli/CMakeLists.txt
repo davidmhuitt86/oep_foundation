@@ -2,6 +2,7 @@ cmake_minimum_required(VERSION 3.25)
 
 add_library(oep_cli_core STATIC
     src/command_registry.cpp
+    src/commands/batch_command.cpp
     src/commands/export_command.cpp
     src/commands/graph_command.cpp
     src/commands/help_command.cpp
@@ -14,6 +15,7 @@ add_library(oep_cli_core STATIC
     src/commands/repository_path_option.cpp
     src/commands/search_command.cpp
     src/commands/status_command.cpp
+    src/commands/template_command.cpp
     src/commands/validate_command.cpp
     src/commands/version_command.cpp
     src/generator/repository_generator.cpp

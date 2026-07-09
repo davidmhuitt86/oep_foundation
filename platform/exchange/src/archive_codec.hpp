@@ -1,6 +1,7 @@
 #pragma once
 
 #include "oep/exchange/export_manifest.hpp"
+#include "oep/exchange/template_manifest.hpp"
 #include "oep/packages/package_manifest.hpp"
 #include "oep/repository/audit_event.hpp"
 #include "oep/repository/engineering_object.hpp"
@@ -34,5 +35,8 @@ oep::repository::AuditEvent audit_event_from_json(const json::Value& value, bool
 
 json::Value to_json(const oep::packages::PackageManifest& manifest);
 oep::packages::PackageManifest package_manifest_from_json(const json::Value& value, bool& ok);
+
+json::Value to_json(const TemplateManifest& manifest);
+TemplateManifest template_manifest_from_json(const json::Value& value);
 
 } // namespace oep::exchange::archive_codec

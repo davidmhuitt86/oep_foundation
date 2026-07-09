@@ -3,29 +3,12 @@
 #include <algorithm>
 #include <filesystem>
 #include <iostream>
-#include <sstream>
 
 #include "oep/runtime/foundation_runtime.hpp"
 #include "foundation_version.hpp"
 #include "repository_path_option.hpp"
 
 namespace oep::cli::commands {
-
-namespace {
-
-std::vector<std::string> split_tags(const std::string& csv) {
-    std::vector<std::string> tags;
-    std::stringstream stream(csv);
-    std::string tag;
-    while (std::getline(stream, tag, ',')) {
-        if (!tag.empty()) {
-            tags.push_back(tag);
-        }
-    }
-    return tags;
-}
-
-} // namespace
 
 std::string ObjectCommand::name() const {
     return "object";
@@ -112,7 +95,7 @@ int ObjectCommand::create(const std::vector<std::string>& args) const {
     object.name = object_name;
     object.description = description;
     object.author = author;
-    object.tags = split_tags(tags_csv);
+    object.tags = split_csv(tags_csv);
 
     const oep::repository::LoadObjectResult created = runtime.object_store()->create(object);
     if (!created.success) {

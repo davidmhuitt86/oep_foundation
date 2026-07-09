@@ -25,4 +25,9 @@ bool extract_flag(std::vector<std::string>& args, const std::string& flag_name);
 // `--repository` can't collide with that positional slot.
 std::filesystem::path extract_repository_path(std::vector<std::string>& args);
 
+// Splits a comma-separated flag value (e.g. `--tags a,b,c`) into its
+// individual, non-empty entries. Shared by every command that accepts
+// a comma-separated list flag.
+std::vector<std::string> split_csv(const std::string& csv);
+
 } // namespace oep::cli::commands

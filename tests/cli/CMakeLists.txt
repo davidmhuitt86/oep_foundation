@@ -25,3 +25,11 @@ add_test(NAME oep_export_command_tests COMMAND oep_export_command_tests)
 add_executable(oep_import_command_tests import_command_tests.cpp)
 target_link_libraries(oep_import_command_tests PRIVATE oep_cli_core)
 add_test(NAME oep_import_command_tests COMMAND oep_import_command_tests)
+
+add_executable(oep_template_command_tests template_command_tests.cpp)
+target_link_libraries(oep_template_command_tests PRIVATE oep_cli_core)
+add_test(NAME oep_template_command_tests COMMAND oep_template_command_tests)
+
+add_executable(oep_batch_command_tests batch_command_tests.cpp)
+target_link_libraries(oep_batch_command_tests PRIVATE oep_cli_core)
+add_test(NAME oep_batch_command_tests COMMAND oep_batch_command_tests)

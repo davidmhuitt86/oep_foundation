@@ -5,6 +5,8 @@ add_library(oep_exchange STATIC
     src/archive_codec.cpp
     src/repository_exporter.cpp
     src/repository_importer.cpp
+    src/template_manifest.cpp
+    src/repository_template.cpp
 )
 
 target_include_directories(oep_exchange PUBLIC include)

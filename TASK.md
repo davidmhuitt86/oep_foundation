@@ -2,7 +2,7 @@
 # TASK.md
 ## Open Engineering Platform (OEP)
 
-Task ID: 000018
+Task ID: 000020
 
 Status: Complete
 
@@ -10,19 +10,34 @@ Status: Complete
 
 # Current Task
 
-Implement Repository Import per OEP-SPEC-018-REPOSITORY_IMPORT (Work Package 009, second of two tasks; follows TASK-000017/Repository Export immediately, per instruction to complete both before stopping).
+Implement Batch Repository Operations per OEP-SPEC-020-BATCH_OPERATIONS (Work Package 010, second of two tasks; follows TASK-000019/Repository Templates immediately, per instruction to complete both before stopping).
 
-This delivers `oep import <archive-file>`, reconstructing a repository from a previously exported archive through Foundation Runtime.
+This delivers `oep batch create|delete|validate`, allowing many Engineering Objects and Relationships to be created or deleted from a single deterministic JSON input file, fully validated before any execution begins.
 
 ---
 
 # Context
 
-TASK-000017 (Repository Export) is complete, built, and tested.
+TASK-000019 (Repository Templates) is complete, built, and tested.
 
-Import is implemented in the same `platform/exchange` module as Export, using the same archive format/codec. It required one further addition to `platform/repository`: `ObjectStore`/`RelationshipStore`/`AuditStore` gained `restore()` methods (additive-only, alongside the existing `create`/`update`/`remove`/`list_all`) so import can write back records with their exact original identifiers and timestamps — `create()` always regenerates `lastModifiedUtc` and would corrupt round-trip fidelity if reused for import.
+Batch logic lives in `platform/repository` (a new `BatchProcessor`), not `platform/exchange` — bulk object/relationship CRUD against an already-open repository is Repository-domain business logic, unlike Export/Import/Templates, which package/reconstruct whole repositories. `BatchProcessor` reuses the already-public `oep::repository::json` parser; no new JSON infrastructure is introduced.
 
-`FoundationRuntime::import_repository` does not require (or use) a currently open repository, since it targets a destination to create, not one to open — but it is still exposed on `FoundationRuntime` rather than called directly by the CLI, so import continues to execute "entirely through Foundation Runtime" as the spec requires.
+Batch input format (documented in `CLI_USAGE.md`):
+
+```json
+{
+  "objects": [
+    { "ref": "coil", "type": "Component", "name": "Ignition Coil", "author": "Jane", "tags": ["electrical"] }
+  ],
+  "relationships": [
+    { "source": "manual", "target": "coil", "type": "Documents", "description": "..." }
+  ]
+}
+```
+
+`ref` is a batch-local alias (not a real object ID) that a relationship's `source`/`target` may reference for an object created earlier in the *same* batch; a `source`/`target` that doesn't match any `ref` in the batch is treated as an existing object's real ID and checked against the open repository. Batch delete takes a simpler `{"objectIds": [...], "relationshipIds": [...]}` shape. `batch validate` checks a create-format batch file without executing it.
+
+Every batch is fully parsed and validated (duplicate `ref`s, unresolvable `source`/`target`, invalid `type` values, missing required fields) before a single object or relationship is created — matching the same validate-before-write discipline `RepositoryValidator`/Import/Templates already use.
 
 ---
 
@@ -32,49 +47,37 @@ Complete the following tasks only.
 
 ## Objective 1
 
-Add `oep::exchange::import_repository` to `platform/exchange`: reads and validates the archive (JSON well-formedness, export manifest fields, supported export version, repository metadata validity, and that every object/relationship/audit-event/package record parses) before writing anything to `destination`.
+Add `BatchProcessor` to `platform/repository`: parses and validates a batch-create request and a batch-delete request, and executes each only after full validation succeeds.
 
 ---
 
 ## Objective 2
 
-Reject an existing non-empty `destination` unless `overwrite` is set, in which case existing contents are removed before reconstruction.
+Extend `FoundationRuntime` with `execute_batch_create`, `execute_batch_delete`, and `validate_batch_create` (all require an open repository).
 
 ---
 
 ## Objective 3
 
-Restore objects, then relationships, then audit events (order matters: relationships validate that their endpoint objects already exist), then packages, using the new `restore()` operations so identifiers and timestamps are preserved exactly as exported.
+Add `oep batch create|delete|validate` to `platform/cli`, each taking an input file path and `--repository <path>` (default cwd).
 
 ---
 
 ## Objective 4
 
-Extend `FoundationRuntime` with `import_repository(archive_file, destination, overwrite)`, delegating entirely to `oep::exchange::import_repository`.
+Register `BatchCommand` so Help lists it consistently with existing commands.
 
 ---
 
 ## Objective 5
 
-Add `oep import <archive-file>` to `platform/cli`: `--destination <path>` (default cwd) and `--overwrite` (boolean flag, via the shared `extract_flag` helper from TASK-000017).
+Update `platform/runtime/CLI_USAGE.md` with the batch input format (both create and delete shapes), command syntax, and example workflows.
 
 ---
 
 ## Objective 6
 
-Register `ImportCommand` so Help lists it consistently with existing commands.
-
----
-
-## Objective 7
-
-Update `platform/runtime/CLI_USAGE.md` with import command syntax, overwrite behavior, and expected output, plus a combined export→import round-trip example.
-
----
-
-## Objective 8
-
-Add unit tests validating: successful import, overwrite behavior (rejecting without it, succeeding with it), invalid archives, corrupted manifests, unsupported export version, and package restoration.
+Add unit tests validating: successful batch creation (including in-batch relationship refs), successful batch deletion, batch validation (both passing and failing), duplicate identifiers/refs, invalid object references, invalid relationship definitions, and malformed batch files.
 
 ---
 
@@ -82,9 +85,9 @@ Add unit tests validating: successful import, overwrite behavior (rejecting with
 
 Do not implement:
 
-- Merge operations
-- Conflict resolution
-- Incremental import
+- Transaction rollback (validation-before-execution is the integrity guarantee; a mid-execution filesystem failure is not rolled back, consistent with every other store in this codebase)
+- Concurrent execution
+- Distributed processing
 - Cloud synchronization
 - Runtime, SDK, Studios, Networking, Authentication, Plugin system, GUI
 
@@ -94,9 +97,9 @@ These systems belong to future tasks.
 
 # Deliverables
 
-- `oep::exchange::import_repository`
-- `FoundationRuntime::import_repository`
-- `ImportCommand`
+- `BatchProcessor` (`platform/repository`)
+- `FoundationRuntime::execute_batch_create` / `execute_batch_delete` / `validate_batch_create`
+- `BatchCommand`
 - Updated `platform/runtime/CLI_USAGE.md`
 - Unit tests
 
@@ -107,13 +110,12 @@ These systems belong to future tasks.
 This task is complete only when:
 
 - The project builds successfully.
-- Repository import succeeds and faithfully reconstructs an exported repository (identifiers/timestamps preserved).
-- Invalid archives, corrupted manifests, and unsupported export versions are all rejected with descriptive errors.
-- An existing destination is protected unless `--overwrite` is given.
-- Runtime integration is preserved — the CLI never reconstructs repository contents directly.
+- Batch creation, deletion, and validation all succeed for well-formed input.
+- Validation runs fully before any execution; a validation failure creates/deletes nothing.
+- Runtime integration is preserved — the CLI never manipulates repository contents directly.
 - `CLI_USAGE.md` is updated.
-- Unit tests covering successful import, overwrite behavior, invalid archives, corrupted manifests, version mismatch, and package restoration pass.
-- A full rebuild succeeds and the complete regression suite passes.
+- Unit tests covering successful execution, validation failures, duplicate identifiers, invalid relationships, and malformed batch files pass.
+- A full clean rebuild succeeds and the complete regression suite passes.
 
 ---
 
@@ -125,9 +127,9 @@ Favor maintainability.
 
 Favor simplicity.
 
-No merge/conflict-resolution logic; import always reconstructs a whole repository from a whole archive.
+No external JSON library dependency; reuse `oep::repository::json`.
 
-Avoid speculative implementation (no incremental import, no cloud sync).
+Avoid speculative implementation (no rollback, no concurrency, no distributed processing).
 
 ---
 
@@ -156,32 +158,22 @@ Update:
 - PROJECT_STATUS.md
 - CURRENT_SPRINT.md
 
-Stop and await formal review of Work Package 009 (TASK-000017 + TASK-000018), per instructions.
+Stop and await formal review of Work Package 010 (TASK-000019 + TASK-000020), per instructions.
 
 ---
 
 # Verification Record
 
-Full clean rebuild (`rm -rf build`, reconfigure, rebuild) with MSVC 19.51 (Visual Studio Build Tools 18) via CMake + Ninja: succeeded, 82/82 build steps.
+**Full clean rebuild:** `rm -rf build` followed by `cmake -S . -B build -G Ninja` and `cmake --build build` with MSVC 19.51 (Visual Studio Build Tools 18) — 95/95 build steps succeeded, producing every library (`oep_repository`, `oep_packages`, `oep_search`, `oep_validation`, `oep_exchange`, `oep_runtime`, `oep_cli_core`), the `oep` executable, and all 22 test executables.
 
-Complete regression suite (`ctest --output-on-failure`): 18/18 suites passed —
-`oep_repository_tests`, `oep_engineering_object_tests`, `oep_relationship_tests`, `oep_graph_engine_tests`, `oep_audit_store_tests`, `oep_search_engine_tests`, `oep_repository_validator_tests`, `oep_package_manager_tests`, `oep_repository_exporter_tests`, `oep_repository_importer_tests`, `oep_foundation_runtime_tests`, `oep_cli_commands_tests`, `oep_object_command_tests`, `oep_relationship_command_tests`, `oep_search_command_tests`, `oep_graph_command_tests`, `oep_export_command_tests`, `oep_import_command_tests`.
+**Regression suite:** `ctest --output-on-failure` — 22/22 test suites passed (100%), including the two new suites added by this task (`oep_batch_processor_tests`, `oep_batch_command_tests`) and the two added by TASK-000019 (`oep_repository_template_tests`, `oep_template_command_tests`), alongside all eighteen pre-existing suites.
 
-New test suites for this work package:
-- `oep_repository_exporter_tests` (4 cases): export with content, empty-repository export, invalid output path, package inclusion on/off
-- `oep_repository_importer_tests` (7 cases): successful import preserving identity, overwrite rejection then acceptance, invalid JSON, missing archive file, corrupted manifest, unsupported export version, package restoration
-- `oep_export_command_tests` (4 cases): archive produced with manifest, empty-repository export, missing output file, missing repository
-- `oep_import_command_tests` (5 cases): full round-trip through the real CLI commands, missing archive argument, overwrite rejection/acceptance, invalid archive, missing archive file
+**Manual smoke tests:** `oep init`, plus a full `oep batch create` → `oep batch validate` (both passing and finding a deliberate duplicate ref) → `oep batch delete` session against a real generated repository, confirming in-batch `ref` resolution, deterministic multi-finding validation reporting, and that a failed validation creates nothing.
 
-Manual smoke tests against real `oep init`-generated repositories: full export→import round trip (exact object ID, author, tags, and both timestamps preserved across the round trip), `--include-packages` behavior, overwrite protection (rejected without `--overwrite`, succeeds with it), and invalid-archive/missing-repository error paths — all produced descriptive, non-stack-trace errors with correct exit codes.
+**Architectural observations and decisions:**
 
-Documentation: `platform/runtime/CLI_USAGE.md` (export/import command tables, archive format explanation, full round-trip example with real captured output, overwrite/invalid-archive examples, new limitations), `platform/runtime/README.md`, `platform/cli/README.md`, and `platform/exchange/README.md` (Placeholder → Foundation) all updated.
-
-## Architectural observations and implementation decisions
-
-- **Archive format**: chosen as a single JSON document rather than a zip/tar container, to avoid introducing a compression/archive-library dependency (per the constitution's dependency-cost test). A JSON file still satisfies "a single archive containing" the required sections and is trivially deterministic to produce.
-- **New `ObjectStore`/`RelationshipStore`/`AuditStore::restore()` methods**: additive-only; no existing signature or behavior changed. This was a genuine requirement, not a convenience — `create()` unconditionally regenerates `lastModifiedUtc`, which would silently corrupt round-trip fidelity if reused for import. `restore()` writes exactly what it's given and records no audit event, since restoring history is not creating new history.
-- **`FoundationRuntime::import_repository` does not require an open repository.** It targets a destination to create, not one to open — but is still exposed on the Runtime (not called directly from Exchange by the CLI) so that "import executes entirely through Foundation Runtime" remains true structurally, matching how every other repository-touching command already works.
-- **Generalized `--repository` flag extraction** (`extract_path_option`/`extract_flag`) so `--include-packages`, `--destination`, and `--overwrite` share one primitive instead of each command reimplementing flag parsing; `extract_repository_path`'s existing signature and behavior are unchanged.
-- **Package restoration scope**: import restores only each package's `package.json` manifest, not arbitrary other files a package directory might contain — consistent with `PackageManager` itself only ever inspecting `package.json` (Sprint 010). Documented explicitly in `CLI_USAGE.md` rather than silently doing a partial restore.
-- **No rollback on mid-restore filesystem failure**: archive content is fully parsed and validated *before* any filesystem write begins, so a corrupt/invalid archive never touches `destination`. A genuine filesystem failure partway through restoring already-validated records (disk full, permissions) can still leave a partially-populated destination — consistent with how every other store in this codebase behaves (atomic per-file, not atomic across a whole batch) and not something this task introduces uniquely.
+- `BatchProcessor` was placed in `platform/repository`, not `platform/exchange`, because it operates on an *already-open* repository's objects/relationships — the same domain `GraphEngine` and `RepositoryValidator` already occupy — rather than packaging or reconstructing a *whole* repository (Export/Import/Templates' concern). This keeps `platform/exchange` scoped to whole-repository transfer formats.
+- The `ref` aliasing mechanism (batch-local, resolved by `validate_batch_create_request`/`execute_batch_create` via a `known_refs` set with fallback to `ObjectStore::load`) was necessary because new objects don't have real IDs until they're created — without it, a batch could never create a new object and a relationship to it in one atomic request.
+- Both `BatchCreateResult`/`BatchDeleteResult` "all or nothing" semantics required validating fully (all refs, all IDs) before writing anything, consistent with the validate-then-execute discipline already established by `RepositoryValidator`, Import, and Templates.
+- `TemplateManifest` JSON marshaling was added to the existing `archive_codec.hpp` rather than a new codec file, since a template is structurally "an archive plus a manifest" and already needed every marshaling function the exporter/importer had.
+- The `split_csv` shared-refactoring extraction (moving `object_command`'s local `split_tags` into `repository_path_option.hpp`) was completed under the work package's pre-authorization for shared refactoring between the two tasks; no other public interface or architectural boundary was touched.

@@ -224,4 +224,28 @@ oep::packages::PackageManifest package_manifest_from_json(const json::Value& val
     return manifest;
 }
 
+json::Value to_json(const TemplateManifest& manifest) {
+    json::Object fields;
+    fields.emplace_back("templateId", json::Value::string(manifest.template_id));
+    fields.emplace_back("templateName", json::Value::string(manifest.template_name));
+    fields.emplace_back("version", json::Value::string(manifest.version));
+    fields.emplace_back("description", json::Value::string(manifest.description));
+    fields.emplace_back("author", json::Value::string(manifest.author));
+    fields.emplace_back("tags", string_array(manifest.tags));
+    fields.emplace_back("foundationVersion", json::Value::string(manifest.foundation_version));
+    return json::Value::object(std::move(fields));
+}
+
+TemplateManifest template_manifest_from_json(const json::Value& value) {
+    TemplateManifest manifest;
+    manifest.template_id = read_string(value, "templateId");
+    manifest.template_name = read_string(value, "templateName");
+    manifest.version = read_string(value, "version");
+    manifest.description = read_string(value, "description");
+    manifest.author = read_string(value, "author");
+    manifest.tags = read_string_array(value, "tags");
+    manifest.foundation_version = read_string(value, "foundationVersion");
+    return manifest;
+}
+
 } // namespace oep::exchange::archive_codec
