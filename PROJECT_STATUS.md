@@ -229,6 +229,10 @@ Runtime
 
 Complete (`FoundationRuntime` — lifecycle + service registry for Repository/Search/Graph/Validation/Package Manager — per OEP-SPEC-011; now the backing for every `oep` command that touches a repository)
 
+Public C API
+
+Complete (`oep_api` — pure C ABI over `FoundationRuntime`: runtime/repository lifecycle, error reporting, versioning — per OEP-SPEC-021; Bridge support — deterministic runtime state, error category, Bridge-compatible data structures — per OEP-SPEC-022)
+
 SDK
 
 Not Started
