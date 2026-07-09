@@ -2,7 +2,7 @@
 # CURRENT_SPRINT.md
 ## Open Engineering Platform (OEP)
 
-Sprint: 013
+Sprint: 014
 
 Status: Active
 
@@ -10,25 +10,25 @@ Status: Active
 
 # Sprint Name
 
-Engineering Object CLI Commands
+Engineering Relationship CLI Commands
 
 ---
 
 # Sprint Objective
 
-Implement Engineering Object CLI Commands per OEP-SPEC-013-ENGINEERING_OBJECT_COMMANDS: `oep object create|list|show|delete`, backed exclusively by Foundation Runtime and `ObjectStore`.
+Implement Engineering Relationship CLI Commands per OEP-SPEC-014-RELATIONSHIP_COMMANDS: `oep relationship create|list|show|delete`, backed exclusively by Foundation Runtime and `RelationshipStore`.
 
-The goal is not to build object editing, binary asset import, or relationship management commands.
+The goal is not to build relationship editing, batch creation, or graph visualization.
 
-The goal is to make the CLI the first engineering-authoring client for OEP, without duplicating any Foundation business logic.
+The goal is to make the CLI a complete authoring interface for both Engineering Objects and Relationships, without duplicating any Foundation business logic.
 
 ---
 
 # Primary Deliverable
 
-`ObjectCommand`
+`RelationshipCommand`
 
-A new `object` command with four subcommands, each a thin layer over `FoundationRuntime`/`ObjectStore`.
+A new `relationship` command with four subcommands, mirroring `ObjectCommand`, each a thin layer over `FoundationRuntime`/`RelationshipStore`.
 
 ---
 
@@ -36,7 +36,7 @@ A new `object` command with four subcommands, each a thin layer over `Foundation
 
 This sprint includes:
 
-- `object create`/`list`/`show`/`delete`
+- `relationship create`/`list`/`show`/`delete`
 - Updated `platform/runtime/CLI_USAGE.md`
 - Unit tests
 
@@ -46,12 +46,10 @@ This sprint includes:
 
 The following items are explicitly excluded from this sprint:
 
-- Object editing
-- Binary asset import
-- Relationship management commands
-- Diagram editing
-- List filtering/sorting beyond deterministic ID order
-- Soft deletion
+- Relationship editing
+- Batch relationship creation
+- Graph visualization
+- Automatic relationship discovery
 - Runtime
 - SDK
 - Studios
@@ -70,12 +68,13 @@ If implementation of these items appears necessary, document the dependency and 
 This sprint is complete when:
 
 - The project builds successfully.
-- Engineering Objects can be created, listed, shown, and deleted from the CLI.
+- Relationships can be created, listed, shown, and deleted from the CLI.
+- Relationship validation is enforced.
 - Deletion automatically generates an Audit Event.
-- Help lists the `object` command.
+- Help lists the `relationship` command.
 - No subcommand constructs Repository services directly.
 - `CLI_USAGE.md` is updated.
-- Unit tests covering creation, listing, inspection, deletion, invalid object IDs, and Runtime integration pass.
+- Unit tests covering creation, listing, inspection, deletion, invalid object references, invalid relationship types, duplicate operations, and Runtime integration pass.
 - Documentation is updated.
 
 ---
@@ -242,3 +241,9 @@ Refactored `platform/cli` into a static library (`oep_cli_core`) plus a thin exe
 # Task 000013 — Verified Complete
 
 Added `oep object create|list|show|delete` to `platform/cli`, per OEP-SPEC-013-ENGINEERING_OBJECT_COMMANDS, each subcommand a thin layer over `FoundationRuntime`/`ObjectStore` with no duplicated business logic. `create` accepts `--type`/`--name` (required) plus `--description`/`--author`/`--tags`; `list` prints Object ID/Type/Name/Version sorted by ID for determinism; `show` prints every field including both timestamps; `delete` removes through the existing `ObjectStore::remove`, which already auto-records an `ObjectDeleted` Audit Event (no new audit wiring needed — confirmed by a dedicated test reading the event back out of the `AuditStore`). Repository selection uses an optional `--repository <path>` flag (defaulting to cwd) rather than a positional argument, since `show`/`delete` already use their one positional slot for the object ID. Updated `platform/runtime/CLI_USAGE.md` with the new command table, example workflow, and limitations, per the spec's Definition-of-Done requirement. Built with MSVC 19.51 via CMake/Ninja; `oep_object_command_tests` (7 cases: missing required create fields, an unrecognized object type, a full create→list→show→delete→show-after-delete lifecycle, the automatic audit event on delete, show failing for a nonexistent ID, list reporting none for an empty repository, and an unknown subcommand being rejected) passed via CTest alongside the existing ten suites (11/11 suites). Manually smoke-tested the full lifecycle against a real generated repository. `oep init` re-verified unaffected. Sprint 013 acceptance criteria are satisfied.
+
+---
+
+# Task 000014 — Verified Complete
+
+Added `oep relationship create|list|show|delete` to `platform/cli`, per OEP-SPEC-014-RELATIONSHIP_COMMANDS, mirroring `ObjectCommand` exactly and backed by `RelationshipStore`. Factored the `--repository <path>` extraction helper (previously duplicated logic if copy-pasted) into a shared `repository_path_option.hpp/.cpp` used by both `object` and `relationship`. `create` requires `--source`/`--target`/`--type` and relies entirely on `RelationshipStore::create`'s existing validation (object existence, source ≠ target, valid type) — no CLI-side re-validation. `delete` removes through the existing `RelationshipStore::remove`, which already auto-records a `RelationshipDeleted` Audit Event, confirmed by a dedicated test. Updated `platform/runtime/CLI_USAGE.md` with the relationship command table, supported types, a full object+relationship workflow, and a validation-rejection example with real captured error text. Built with MSVC 19.51 via CMake/Ninja; `oep_relationship_command_tests` (8 cases: missing required create fields, unrecognized relationship type, nonexistent object reference, matching source/target rejection, a full create→list→show→delete→show-after-delete lifecycle, the automatic audit event on delete, list reporting none for an empty repository, and an unknown subcommand being rejected) passed via CTest alongside the existing eleven suites (12/12 suites). Manually smoke-tested the full lifecycle, including building a two-object relationship, against a real generated repository. `oep init` re-verified unaffected. Sprint 014 acceptance criteria are satisfied.

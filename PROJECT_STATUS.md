@@ -195,7 +195,7 @@ In Progress
 
 CLI
 
-Complete (v0.1.0 — `version`/`init`/`open`/`validate`/`packages`/`status`/`object`/`help`, per OEP-SPEC-012 and OEP-SPEC-013; Runtime-backed, no session persistence across invocations)
+Complete (v0.1.0 — `version`/`init`/`open`/`validate`/`packages`/`status`/`object`/`relationship`/`help`, per OEP-SPEC-012/013/014; Runtime-backed, no session persistence across invocations)
 
 Foundation Generator
 

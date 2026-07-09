@@ -2,7 +2,7 @@
 # TASK.md
 ## Open Engineering Platform (OEP)
 
-Task ID: 000013
+Task ID: 000014
 
 Status: Complete
 
@@ -10,19 +10,19 @@ Status: Complete
 
 # Current Task
 
-Implement Engineering Object CLI Commands per OEP-SPEC-013-ENGINEERING_OBJECT_COMMANDS.
+Implement Engineering Relationship CLI Commands per OEP-SPEC-014-RELATIONSHIP_COMMANDS.
 
-This delivers `oep object create|list|show|delete`, making the CLI the first engineering-authoring client for OEP, backed exclusively by Foundation Runtime and the existing `ObjectStore`.
+This delivers `oep relationship create|list|show|delete`, mirroring the `oep object` command pattern from TASK-000013 but backed by `RelationshipStore`, making the CLI a complete authoring interface for both Engineering Objects and Relationships.
 
 ---
 
 # Context
 
-TASK-000012 (CLI Command Framework Expansion) is complete and accepted.
+TASK-000013 (Engineering Object CLI Commands) is complete and accepted.
 
-OEP-SPEC-013-ENGINEERING_OBJECT_COMMANDS.md defines the four subcommands, required fields for creation, required display fields for listing/inspection, and requires that deletion automatically generate an Audit Event (already true of `ObjectStore::remove`, wired since Sprint 008 — no new audit logic is needed here). Object editing, binary asset import, relationship management, and diagram editing are explicitly deferred.
+OEP-SPEC-014-RELATIONSHIP_COMMANDS.md defines the four subcommands, required/optional creation fields, required display fields for listing/inspection, and requires that deletion automatically generate an Audit Event (already true of `RelationshipStore::remove`, wired since Sprint 008 — no new audit logic is needed). Relationship editing, batch creation, graph visualization, and automatic discovery are explicitly deferred.
 
-Unlike `validate`/`packages`/`status` (which take an optional positional repository path), the spec's literal syntax for `object show <object-id>`/`object delete <object-id>` already uses the one positional slot for the object ID. Repository selection for all four `object` subcommands is via an optional `--repository <path>` flag, defaulting to the current working directory — consistent in spirit with the existing commands' default-to-cwd behavior, expressed as a flag instead of a positional argument since the object ID already occupies that position for `show`/`delete`.
+Following the `object` command's convention, repository selection is via an optional `--repository <path>` flag (defaulting to the current working directory), since `show`/`delete` use their one positional slot for the relationship ID.
 
 ---
 
@@ -32,49 +32,49 @@ Complete the following tasks only.
 
 ## Objective 1
 
-Add `ObjectCommand` (registered as `object`) to `platform/cli`, dispatching to `create`/`list`/`show`/`delete` subcommands.
+Add `RelationshipCommand` (registered as `relationship`) to `platform/cli`, dispatching to `create`/`list`/`show`/`delete` subcommands, structured consistently with `ObjectCommand`.
 
 ---
 
 ## Objective 2
 
-`create` accepts `--type`, `--name`, `--description`, `--author`, `--tags` (comma-separated) and an optional `--repository`; `--type` and `--name` are required. Object IDs are generated automatically by `ObjectStore::create`.
+`create` requires `--source`, `--target`, `--type`; accepts optional `--author`, `--description`, and `--repository`. Relationship IDs are generated automatically by `RelationshipStore::create`, which already validates that both objects exist, rejects a matching source/target, and rejects an invalid type — the CLI relies on these existing checks rather than re-validating.
 
 ---
 
 ## Objective 3
 
-`list` displays Object ID, Object Type, Name, and Version for every object, sorted by Object ID for deterministic output.
+`list` displays Relationship ID, Relationship Type, Source Object ID, and Target Object ID for every relationship, sorted by Relationship ID for deterministic output.
 
 ---
 
 ## Objective 4
 
-`show <object-id>` displays every field: Object ID, Object Type, Name, Description, Author, Tags, Version, Creation Timestamp, Last Modified Timestamp.
+`show <relationship-id>` displays Relationship ID, Relationship Type, Source Object ID, Target Object ID, Author, Description, and Creation Timestamp.
 
 ---
 
 ## Objective 5
 
-`delete <object-id>` removes the object through `ObjectStore::remove` (which already automatically records an `ObjectDeleted` Audit Event).
+`delete <relationship-id>` removes the relationship through `RelationshipStore::remove` (which already automatically records a `RelationshipDeleted` Audit Event).
 
 ---
 
 ## Objective 6
 
-Register `ObjectCommand` so Help lists it (and its subcommands' existence is discoverable via its own usage/description) consistently with existing commands.
+Register `RelationshipCommand` so Help lists it consistently with existing commands.
 
 ---
 
 ## Objective 7
 
-Update `platform/runtime/CLI_USAGE.md` with object command syntax, example workflows, expected output, and current limitations.
+Update `platform/runtime/CLI_USAGE.md` with relationship command syntax, supported relationship types, example workflows, expected output, and current limitations.
 
 ---
 
 ## Objective 8
 
-Add unit tests validating creation, listing, inspection, deletion, invalid/nonexistent object IDs, and that all four subcommands operate exclusively through Foundation Runtime.
+Add unit tests validating creation, listing, inspection, deletion, invalid object references, invalid relationship types, duplicate/matching source-target rejection, and Runtime integration.
 
 ---
 
@@ -82,12 +82,10 @@ Add unit tests validating creation, listing, inspection, deletion, invalid/nonex
 
 Do not implement:
 
-- Object editing (updating an existing object's fields via CLI)
-- Binary asset import
-- Relationship management commands
-- Diagram editing
-- Filtering/sorting options for `list` beyond deterministic ID order
-- Soft deletion
+- Relationship editing
+- Batch relationship creation
+- Graph visualization
+- Automatic relationship discovery
 - Runtime, SDK, Studios, Exchange, Networking, Authentication, Plugin system, GUI
 
 These systems belong to future tasks.
@@ -96,7 +94,7 @@ These systems belong to future tasks.
 
 # Deliverables
 
-- `ObjectCommand` (`create`/`list`/`show`/`delete`)
+- `RelationshipCommand` (`create`/`list`/`show`/`delete`)
 - Updated `platform/runtime/CLI_USAGE.md`
 - Unit tests
 
@@ -107,12 +105,13 @@ These systems belong to future tasks.
 This task is complete only when:
 
 - The project builds successfully.
-- Engineering Objects can be created, listed, shown, and deleted from the CLI.
+- Relationships can be created, listed, shown, and deleted from the CLI.
+- Relationship validation (object existence, type validity, source ≠ target) is enforced via the existing `RelationshipStore`.
 - Deletion automatically generates an Audit Event.
-- Help lists the `object` command.
-- No `object` subcommand constructs Repository services directly — all go through `FoundationRuntime`.
+- Help lists the `relationship` command.
+- No subcommand constructs Repository services directly.
 - `CLI_USAGE.md` is updated and accurate.
-- Unit tests covering creation, listing, inspection, deletion, invalid object IDs, and Runtime integration pass.
+- Unit tests covering creation, listing, inspection, deletion, invalid object references, invalid relationship types, duplicate/matching source-target rejection, and Runtime integration pass.
 
 ---
 
@@ -124,9 +123,9 @@ Favor maintainability.
 
 Favor simplicity.
 
-Every subcommand is a thin layer over `FoundationRuntime`/`ObjectStore`; no business logic is duplicated in the CLI.
+Every subcommand is a thin layer over `FoundationRuntime`/`RelationshipStore`; no business logic is duplicated in the CLI.
 
-Avoid speculative implementation (no editing, no binary import, no relationship commands).
+Avoid speculative implementation (no editing, no batch creation, no visualization).
 
 ---
 
@@ -163,9 +162,9 @@ Do not begin the next task until the current task has been reviewed and accepted
 
 Built with MSVC 19.51 (Visual Studio Build Tools 18) via CMake + Ninja.
 
-- Build: succeeded, including the new `ObjectCommand` and its wiring into `oep_cli_core`
-- `oep_repository_tests`, `oep_engineering_object_tests`, `oep_relationship_tests`, `oep_graph_engine_tests`, `oep_audit_store_tests`, `oep_search_engine_tests`, `oep_repository_validator_tests`, `oep_package_manager_tests`, `oep_foundation_runtime_tests`, `oep_cli_commands_tests`, `oep_object_command_tests` (CTest): 11/11 suites passed
-- Manual smoke test: `oep object create/list/show/delete` run correctly against a real generated repository, including `show` failing descriptively after the object is deleted
-- `platform/runtime/CLI_USAGE.md`: updated with the object command table, `--type` enum values, a full example workflow with real captured output, and new limitations
+- Build: succeeded, including the new `RelationshipCommand` and the shared `repository_path_option` helper factored out of `ObjectCommand`
+- `oep_repository_tests`, `oep_engineering_object_tests`, `oep_relationship_tests`, `oep_graph_engine_tests`, `oep_audit_store_tests`, `oep_search_engine_tests`, `oep_repository_validator_tests`, `oep_package_manager_tests`, `oep_foundation_runtime_tests`, `oep_cli_commands_tests`, `oep_object_command_tests`, `oep_relationship_command_tests` (CTest): 12/12 suites passed
+- Manual smoke test: `oep relationship create/list/show/delete` run correctly against a real generated repository with two objects, including `show` failing descriptively after deletion
+- `platform/runtime/CLI_USAGE.md`: updated with the relationship command table, `--type` enum values, a full object+relationship workflow with real captured output, a validation-rejection example, and new limitations
 
-Task 000013 is complete pending formal acceptance.
+Task 000014 is complete pending formal acceptance.

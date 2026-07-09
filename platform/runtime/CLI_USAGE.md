@@ -56,9 +56,10 @@ Running `oep` with no arguments, or with `--help`/`-h`, shows the help listing.
 | packages | `oep packages [repository]` | List discovered packages and their state |
 | status | `oep status [repository]` | Display Foundation Runtime status and repository information |
 | object | `oep object <create\|list\|show\|delete> [arguments] [--repository <path>]` | Create, list, show, and delete Engineering Objects |
+| relationship | `oep relationship <create\|list\|show\|delete> [arguments] [--repository <path>]` | Create, list, show, and delete Relationships |
 | help | `oep help` | Display available commands |
 
-`validate`, `packages`, and `status` default to the current working directory when no repository path is given. `open` and `init` require an explicit argument. `object` subcommands default to the current working directory unless `--repository <path>` is given — a flag rather than a positional argument, since `object show`/`object delete` already use the one positional slot for the object ID.
+`validate`, `packages`, and `status` default to the current working directory when no repository path is given. `open` and `init` require an explicit argument. `object` and `relationship` subcommands default to the current working directory unless `--repository <path>` is given — a flag rather than a positional argument, since their `show`/`delete` subcommands already use the one positional slot for the object/relationship ID.
 
 ### Object commands
 
@@ -70,6 +71,17 @@ Running `oep` with no arguments, or with `--help`/`-h`, shows the help listing.
 | delete | `oep object delete <object-id> [--repository <path>]` | Delete an object (automatically records an `ObjectDeleted` Audit Event) |
 
 `--type` must be one of: `Document`, `Diagram`, `Component`, `Procedure`, `Project`, `Image`. Object IDs are generated automatically by `create` — they are never chosen by the caller.
+
+### Relationship commands
+
+| Subcommand | Syntax | Description |
+|---|---|---|
+| create | `oep relationship create --source <object-id> --target <object-id> --type <type> [--author <name>] [--description <text>] [--repository <path>]` | Create a new Relationship between two existing objects |
+| list | `oep relationship list [--repository <path>]` | List every relationship (Relationship ID, Type, Source, Target), sorted by Relationship ID |
+| show | `oep relationship show <relationship-id> [--repository <path>]` | Display every field of one relationship |
+| delete | `oep relationship delete <relationship-id> [--repository <path>]` | Delete a relationship (automatically records a `RelationshipDeleted` Audit Event) |
+
+`--type` must be one of: `References`, `Contains`, `DependsOn`, `ConnectedTo`, `Documents`, `Implements`. Relationship IDs are generated automatically. `create` enforces (via the existing `RelationshipStore`, not CLI-side logic) that both `--source` and `--target` reference objects that already exist, and that they differ from each other.
 
 ---
 
@@ -135,6 +147,44 @@ oep: could not show object: no object with id '044ba21d-85b2-4502-a5ea-3787fec41
 
 Every `object` subcommand runs against the repository rooted at the current working directory by default; pass `--repository <path>` to target a different one.
 
+### Building an engineering graph with Relationships
+
+```text
+$ oep object create --type Document --name "Manual"
+Created object 'f137b405-41b9-401e-8334-f085f9278b90' (Document) 'Manual'
+
+$ oep object create --type Component --name "Coil"
+Created object 'd3ddc99c-27d6-4916-a582-c0af0fbcb276' (Component) 'Coil'
+
+$ oep relationship create --source f137b405-41b9-401e-8334-f085f9278b90 --target d3ddc99c-27d6-4916-a582-c0af0fbcb276 --type Documents --author Jane --description "Manual documents the coil"
+Created relationship 'a1cc95de-a335-4231-9e59-2ce396f7863c' (Documents) 'f137b405-41b9-401e-8334-f085f9278b90' -> 'd3ddc99c-27d6-4916-a582-c0af0fbcb276'
+
+$ oep relationship list
+a1cc95de-a335-4231-9e59-2ce396f7863c	Documents	f137b405-41b9-401e-8334-f085f9278b90	d3ddc99c-27d6-4916-a582-c0af0fbcb276
+
+$ oep relationship show a1cc95de-a335-4231-9e59-2ce396f7863c
+Relationship ID:  a1cc95de-a335-4231-9e59-2ce396f7863c
+Type:             Documents
+Source Object ID: f137b405-41b9-401e-8334-f085f9278b90
+Target Object ID: d3ddc99c-27d6-4916-a582-c0af0fbcb276
+Author:           Jane
+Description:      Manual documents the coil
+Created:          2026-07-09T02:08:06.026Z
+
+$ oep relationship delete a1cc95de-a335-4231-9e59-2ce396f7863c
+Deleted relationship 'a1cc95de-a335-4231-9e59-2ce396f7863c'
+
+$ oep relationship list
+No relationships found.
+```
+
+`relationship create` rejects invalid input using the same validation `RelationshipStore` already enforces everywhere else — a nonexistent `--source`/`--target`, a matching `--source`/`--target`, or an unrecognized `--type` all fail with a descriptive error and create nothing:
+
+```text
+$ oep relationship create --source f137b405-41b9-401e-8334-f085f9278b90 --target f137b405-41b9-401e-8334-f085f9278b90 --type References
+oep: could not create relationship: refusing to create invalid relationship: sourceObjectId and targetObjectId must differ
+```
+
 ### An invalid or missing repository
 
 ```text
@@ -192,8 +242,10 @@ Packages are discovered under the repository's top-level `packages/` directory; 
 - No interactive shell, scripting support, or remote execution.
 - `oep init` does not yet populate `repository/objects`, `repository/relationships`, or `repository/audit` — those directories are created on demand by the Runtime-backed commands the first time they're needed.
 - Package installation, updates, and dependency resolution are not implemented; `oep packages` only discovers and reports what's already present.
-- `oep object` supports create/list/show/delete only — there is no way to edit an existing object's fields from the CLI, import binary assets, or manage Relationships yet.
+- `oep object` supports create/list/show/delete only — there is no way to edit an existing object's fields from the CLI or import binary assets yet.
 - `oep object list` always sorts by Object ID; there is no filtering or alternate sort order yet.
+- `oep relationship` supports create/list/show/delete only — there is no editing, batch creation, or graph visualization from the CLI yet.
+- `oep relationship list` always sorts by Relationship ID; there is no filtering or alternate sort order yet.
 
 ---
 
