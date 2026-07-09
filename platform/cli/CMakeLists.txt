@@ -9,6 +9,7 @@ add_library(oep_cli_core STATIC
     src/commands/packages_command.cpp
     src/commands/relationship_command.cpp
     src/commands/repository_path_option.cpp
+    src/commands/search_command.cpp
     src/commands/status_command.cpp
     src/commands/validate_command.cpp
     src/commands/version_command.cpp

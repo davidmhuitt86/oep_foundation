@@ -2,7 +2,7 @@
 # CURRENT_SPRINT.md
 ## Open Engineering Platform (OEP)
 
-Sprint: 014
+Sprint: 015
 
 Status: Active
 
@@ -10,25 +10,25 @@ Status: Active
 
 # Sprint Name
 
-Engineering Relationship CLI Commands
+Repository Search CLI Commands
 
 ---
 
 # Sprint Objective
 
-Implement Engineering Relationship CLI Commands per OEP-SPEC-014-RELATIONSHIP_COMMANDS: `oep relationship create|list|show|delete`, backed exclusively by Foundation Runtime and `RelationshipStore`.
+Implement Repository Search CLI Commands per OEP-SPEC-015_SEARCH_COMMANDS: `oep search`/`oep search objects`/`oep search relationships`, backed exclusively by Foundation Runtime and the existing `SearchEngine`.
 
-The goal is not to build relationship editing, batch creation, or graph visualization.
+The goal is not to build semantic search, regex search, or saved searches.
 
-The goal is to make the CLI a complete authoring interface for both Engineering Objects and Relationships, without duplicating any Foundation business logic.
+The goal is to make Engineering Objects and Relationships discoverable from the CLI without requiring prior knowledge of identifiers, while all search logic stays owned by the Search subsystem.
 
 ---
 
 # Primary Deliverable
 
-`RelationshipCommand`
+`SearchCommand`
 
-A new `relationship` command with four subcommands, mirroring `ObjectCommand`, each a thin layer over `FoundationRuntime`/`RelationshipStore`.
+A new `search` command supporting a bare query (searches both) and `objects`/`relationships` subcommands, plus `--type`/`--author`/`--tag` filters applied after Search Engine execution.
 
 ---
 
@@ -36,7 +36,8 @@ A new `relationship` command with four subcommands, mirroring `ObjectCommand`, e
 
 This sprint includes:
 
-- `relationship create`/`list`/`show`/`delete`
+- `search <query>` / `search objects <query>` / `search relationships <query>`
+- `--type`/`--author`/`--tag` filters
 - Updated `platform/runtime/CLI_USAGE.md`
 - Unit tests
 
@@ -46,10 +47,11 @@ This sprint includes:
 
 The following items are explicitly excluded from this sprint:
 
-- Relationship editing
-- Batch relationship creation
-- Graph visualization
-- Automatic relationship discovery
+- Semantic search
+- AI-assisted search
+- Regular expression search
+- Saved searches
+- Advanced query languages
 - Runtime
 - SDK
 - Studios
@@ -68,13 +70,13 @@ If implementation of these items appears necessary, document the dependency and 
 This sprint is complete when:
 
 - The project builds successfully.
-- Relationships can be created, listed, shown, and deleted from the CLI.
-- Relationship validation is enforced.
-- Deletion automatically generates an Audit Event.
-- Help lists the `relationship` command.
-- No subcommand constructs Repository services directly.
+- Object search and relationship search both execute successfully.
+- Filters operate correctly.
+- Runtime integration is preserved; the CLI never constructs `SearchEngine` directly.
+- Search results remain deterministic (no independent CLI ranking).
+- Help lists the `search` command.
 - `CLI_USAGE.md` is updated.
-- Unit tests covering creation, listing, inspection, deletion, invalid object references, invalid relationship types, duplicate operations, and Runtime integration pass.
+- Unit tests covering object search, relationship search, filtering, empty repositories, invalid repositories, no-match results, and Runtime integration pass.
 - Documentation is updated.
 
 ---
@@ -247,3 +249,9 @@ Added `oep object create|list|show|delete` to `platform/cli`, per OEP-SPEC-013-E
 # Task 000014 — Verified Complete
 
 Added `oep relationship create|list|show|delete` to `platform/cli`, per OEP-SPEC-014-RELATIONSHIP_COMMANDS, mirroring `ObjectCommand` exactly and backed by `RelationshipStore`. Factored the `--repository <path>` extraction helper (previously duplicated logic if copy-pasted) into a shared `repository_path_option.hpp/.cpp` used by both `object` and `relationship`. `create` requires `--source`/`--target`/`--type` and relies entirely on `RelationshipStore::create`'s existing validation (object existence, source ≠ target, valid type) — no CLI-side re-validation. `delete` removes through the existing `RelationshipStore::remove`, which already auto-records a `RelationshipDeleted` Audit Event, confirmed by a dedicated test. Updated `platform/runtime/CLI_USAGE.md` with the relationship command table, supported types, a full object+relationship workflow, and a validation-rejection example with real captured error text. Built with MSVC 19.51 via CMake/Ninja; `oep_relationship_command_tests` (8 cases: missing required create fields, unrecognized relationship type, nonexistent object reference, matching source/target rejection, a full create→list→show→delete→show-after-delete lifecycle, the automatic audit event on delete, list reporting none for an empty repository, and an unknown subcommand being rejected) passed via CTest alongside the existing eleven suites (12/12 suites). Manually smoke-tested the full lifecycle, including building a two-object relationship, against a real generated repository. `oep init` re-verified unaffected. Sprint 014 acceptance criteria are satisfied.
+
+---
+
+# Task 000015 — Verified Complete
+
+Added `oep search [objects|relationships] <query>` to `platform/cli`, per OEP-SPEC-015_SEARCH_COMMANDS, exposing the existing `SearchEngine` through `FoundationRuntime` with no independent CLI ranking — filtering happens after `SearchEngine` returns results and only ever removes entries, never reorders them. Reused the shared `--repository` helper from Sprint 014. `--type`/`--author` filter both object and relationship results by loading each hit's full record; `--tag` only applies to objects, since `Relationship` has no tags field (documented rather than silently ignored or erroring). Updated `platform/runtime/CLI_USAGE.md` with the search command/filter tables and a full example session with real captured output. Built with MSVC 19.51 via CMake/Ninja; `oep_search_command_tests` (10 cases: object search, relationship search, a bare query searching both, the three filters each individually excluding a non-matching entry, no-match handling, an empty repository, an invalid repository, and a missing query) passed via CTest alongside the existing twelve suites (13/13 suites). Manually smoke-tested bare/objects/relationships forms, a type filter, and an invalid-repository case against a real generated repository. `oep init` re-verified unaffected. Sprint 015 acceptance criteria are satisfied.

@@ -57,6 +57,7 @@ Running `oep` with no arguments, or with `--help`/`-h`, shows the help listing.
 | status | `oep status [repository]` | Display Foundation Runtime status and repository information |
 | object | `oep object <create\|list\|show\|delete> [arguments] [--repository <path>]` | Create, list, show, and delete Engineering Objects |
 | relationship | `oep relationship <create\|list\|show\|delete> [arguments] [--repository <path>]` | Create, list, show, and delete Relationships |
+| search | `oep search [objects\|relationships] <query> [--type <type>] [--author <author>] [--tag <tag>] [--repository <path>]` | Search Engineering Objects and Relationships |
 | help | `oep help` | Display available commands |
 
 `validate`, `packages`, and `status` default to the current working directory when no repository path is given. `open` and `init` require an explicit argument. `object` and `relationship` subcommands default to the current working directory unless `--repository <path>` is given — a flag rather than a positional argument, since their `show`/`delete` subcommands already use the one positional slot for the object/relationship ID.
@@ -82,6 +83,24 @@ Running `oep` with no arguments, or with `--help`/`-h`, shows the help listing.
 | delete | `oep relationship delete <relationship-id> [--repository <path>]` | Delete a relationship (automatically records a `RelationshipDeleted` Audit Event) |
 
 `--type` must be one of: `References`, `Contains`, `DependsOn`, `ConnectedTo`, `Documents`, `Implements`. Relationship IDs are generated automatically. `create` enforces (via the existing `RelationshipStore`, not CLI-side logic) that both `--source` and `--target` reference objects that already exist, and that they differ from each other.
+
+### Search commands
+
+| Form | Syntax | Description |
+|---|---|---|
+| combined | `oep search <query> [filters]` | Search both objects and relationships |
+| objects | `oep search objects <query> [filters]` | Search objects only |
+| relationships | `oep search relationships <query> [filters]` | Search relationships only |
+
+Available filters (applied by the CLI *after* the Search Engine returns results — they narrow the result set but never reorder it):
+
+| Filter | Applies to | Description |
+|---|---|---|
+| `--type <type>` | objects and relationships | Object type or relationship type, matched exactly |
+| `--author <author>` | objects and relationships | Exact author match |
+| `--tag <tag>` | objects only | Exact tag match; has no effect on relationship search, since Relationships have no tags |
+
+Object results show Object ID, Object Type, Name, Match Score, and Match Location. Relationship results show Relationship ID, Relationship Type, Source Object ID, Target Object ID, Match Score, and Match Location. Search is case-insensitive and partial-match capable (inherited from `SearchEngine`); the CLI never re-ranks or re-sorts what the Search Engine returns.
 
 ---
 
@@ -185,6 +204,34 @@ $ oep relationship create --source f137b405-41b9-401e-8334-f085f9278b90 --target
 oep: could not create relationship: refusing to create invalid relationship: sourceObjectId and targetObjectId must differ
 ```
 
+### Searching a repository
+
+```text
+$ oep object create --type Component --name "Ignition Coil" --author Jane --tags electrical,ignition --description "Generates spark"
+Created object 'b28d49c3-6cef-4d48-bf7c-24839fbe8b9a' (Component) 'Ignition Coil'
+
+$ oep object create --type Document --name "Service Manual" --author John --description "Full documentation"
+Created object 'f9a455e5-b6c1-4da1-9f07-5da5d255b382' (Document) 'Service Manual'
+
+$ oep search coil
+Objects:
+  b28d49c3-6cef-4d48-bf7c-24839fbe8b9a	Component	Ignition Coil	0.5	Name
+Relationships:
+  No matching relationships found.
+
+$ oep search objects manual
+Objects:
+  f9a455e5-b6c1-4da1-9f07-5da5d255b382	Document	Service Manual	0.5	Name
+
+$ oep search objects e --type Document
+Objects:
+  f9a455e5-b6c1-4da1-9f07-5da5d255b382	Document	Service Manual	0.5	Name
+
+$ oep search objects zzz-nomatch
+Objects:
+  No matching objects found.
+```
+
 ### An invalid or missing repository
 
 ```text
@@ -246,6 +293,8 @@ Packages are discovered under the repository's top-level `packages/` directory; 
 - `oep object list` always sorts by Object ID; there is no filtering or alternate sort order yet.
 - `oep relationship` supports create/list/show/delete only — there is no editing, batch creation, or graph visualization from the CLI yet.
 - `oep relationship list` always sorts by Relationship ID; there is no filtering or alternate sort order yet.
+- `oep search` supports exact `--type`/`--author`/`--tag` matches only (no partial-match filters); `--tag` has no effect when searching relationships, since Relationships have no tags field.
+- There is no semantic search, AI-assisted search, regular-expression search, saved searches, or query language — only the case-insensitive, partial-match search `SearchEngine` already provides.
 
 ---
 

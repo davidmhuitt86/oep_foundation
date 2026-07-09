@@ -2,7 +2,7 @@
 # TASK.md
 ## Open Engineering Platform (OEP)
 
-Task ID: 000014
+Task ID: 000015
 
 Status: Complete
 
@@ -10,19 +10,19 @@ Status: Complete
 
 # Current Task
 
-Implement Engineering Relationship CLI Commands per OEP-SPEC-014-RELATIONSHIP_COMMANDS.
+Implement Repository Search CLI Commands per OEP-SPEC-015_SEARCH_COMMANDS.
 
-This delivers `oep relationship create|list|show|delete`, mirroring the `oep object` command pattern from TASK-000013 but backed by `RelationshipStore`, making the CLI a complete authoring interface for both Engineering Objects and Relationships.
+This delivers `oep search <query>`, `oep search objects <query>`, and `oep search relationships <query>`, exposing the existing `SearchEngine` through Foundation Runtime, with post-search filtering by `--type`/`--author`/`--tag`.
 
 ---
 
 # Context
 
-TASK-000013 (Engineering Object CLI Commands) is complete and accepted.
+TASK-000014 (Engineering Relationship CLI Commands) is complete and accepted.
 
-OEP-SPEC-014-RELATIONSHIP_COMMANDS.md defines the four subcommands, required/optional creation fields, required display fields for listing/inspection, and requires that deletion automatically generate an Audit Event (already true of `RelationshipStore::remove`, wired since Sprint 008 — no new audit logic is needed). Relationship editing, batch creation, graph visualization, and automatic discovery are explicitly deferred.
+OEP-SPEC-015_SEARCH_COMMANDS.md defines the three command forms, required object/relationship result fields, the three supported filters (applied after Search Engine execution, never reordering results), and requires the CLI never instantiate `SearchEngine` directly or implement independent ranking. Semantic search, AI-assisted search, regex search, saved searches, and advanced query languages are explicitly deferred.
 
-Following the `object` command's convention, repository selection is via an optional `--repository <path>` flag (defaulting to the current working directory), since `show`/`delete` use their one positional slot for the relationship ID.
+`--tag` has no effect on relationship search, since `Relationship` has no tags field (only `EngineeringObject` does) — this is documented rather than silently mis-filtering or erroring.
 
 ---
 
@@ -32,49 +32,43 @@ Complete the following tasks only.
 
 ## Objective 1
 
-Add `RelationshipCommand` (registered as `relationship`) to `platform/cli`, dispatching to `create`/`list`/`show`/`delete` subcommands, structured consistently with `ObjectCommand`.
+Add `SearchCommand` (registered as `search`) to `platform/cli`. `oep search <query>` searches both objects and relationships; `oep search objects <query>` / `oep search relationships <query>` search just one.
 
 ---
 
 ## Objective 2
 
-`create` requires `--source`, `--target`, `--type`; accepts optional `--author`, `--description`, and `--repository`. Relationship IDs are generated automatically by `RelationshipStore::create`, which already validates that both objects exist, rejects a matching source/target, and rejects an invalid type — the CLI relies on these existing checks rather than re-validating.
+Support `--type`, `--author`, `--tag` filters (plus the existing `--repository`), applied by the CLI after `SearchEngine` returns results — never re-ranking or reordering, only removing non-matching entries.
 
 ---
 
 ## Objective 3
 
-`list` displays Relationship ID, Relationship Type, Source Object ID, and Target Object ID for every relationship, sorted by Relationship ID for deterministic output.
+Object search results display Object ID, Object Type, Name, Match Score, Match Location. Relationship search results display Relationship ID, Relationship Type, Source Object ID, Target Object ID, Match Score, Match Location.
 
 ---
 
 ## Objective 4
 
-`show <relationship-id>` displays Relationship ID, Relationship Type, Source Object ID, Target Object ID, Author, Description, and Creation Timestamp.
+Gracefully report: repository not found, empty repository, no matching results, invalid command syntax — all via descriptive errors, none exposing internal implementation details.
 
 ---
 
 ## Objective 5
 
-`delete <relationship-id>` removes the relationship through `RelationshipStore::remove` (which already automatically records a `RelationshipDeleted` Audit Event).
+Register `SearchCommand` so Help lists it consistently with existing commands.
 
 ---
 
 ## Objective 6
 
-Register `RelationshipCommand` so Help lists it consistently with existing commands.
+Update `platform/runtime/CLI_USAGE.md` with search command syntax, available filters, example searches, expected output, and current limitations.
 
 ---
 
 ## Objective 7
 
-Update `platform/runtime/CLI_USAGE.md` with relationship command syntax, supported relationship types, example workflows, expected output, and current limitations.
-
----
-
-## Objective 8
-
-Add unit tests validating creation, listing, inspection, deletion, invalid object references, invalid relationship types, duplicate/matching source-target rejection, and Runtime integration.
+Add unit tests validating object search, relationship search, filtering (type/author/tag), empty repositories, invalid repositories, no-match results, and Runtime integration.
 
 ---
 
@@ -82,10 +76,11 @@ Add unit tests validating creation, listing, inspection, deletion, invalid objec
 
 Do not implement:
 
-- Relationship editing
-- Batch relationship creation
-- Graph visualization
-- Automatic relationship discovery
+- Semantic search
+- AI-assisted search
+- Regular expression search
+- Saved searches
+- Advanced query languages
 - Runtime, SDK, Studios, Exchange, Networking, Authentication, Plugin system, GUI
 
 These systems belong to future tasks.
@@ -94,7 +89,7 @@ These systems belong to future tasks.
 
 # Deliverables
 
-- `RelationshipCommand` (`create`/`list`/`show`/`delete`)
+- `SearchCommand` (`oep search`, `oep search objects`, `oep search relationships`)
 - Updated `platform/runtime/CLI_USAGE.md`
 - Unit tests
 
@@ -105,13 +100,14 @@ These systems belong to future tasks.
 This task is complete only when:
 
 - The project builds successfully.
-- Relationships can be created, listed, shown, and deleted from the CLI.
-- Relationship validation (object existence, type validity, source ≠ target) is enforced via the existing `RelationshipStore`.
-- Deletion automatically generates an Audit Event.
-- Help lists the `relationship` command.
-- No subcommand constructs Repository services directly.
-- `CLI_USAGE.md` is updated and accurate.
-- Unit tests covering creation, listing, inspection, deletion, invalid object references, invalid relationship types, duplicate/matching source-target rejection, and Runtime integration pass.
+- Object search executes successfully.
+- Relationship search executes successfully.
+- Search filters operate correctly.
+- Runtime integration is preserved (no direct `SearchEngine` construction in the CLI).
+- Search results remain deterministic (CLI never re-ranks).
+- Help lists the `search` command.
+- `CLI_USAGE.md` is updated.
+- Unit tests covering object search, relationship search, filtering, empty repositories, invalid repositories, no-match results, and Runtime integration pass.
 
 ---
 
@@ -123,9 +119,9 @@ Favor maintainability.
 
 Favor simplicity.
 
-Every subcommand is a thin layer over `FoundationRuntime`/`RelationshipStore`; no business logic is duplicated in the CLI.
+The CLI never instantiates `SearchEngine` directly and never implements independent ranking — all search logic stays owned by the Search subsystem.
 
-Avoid speculative implementation (no editing, no batch creation, no visualization).
+Avoid speculative implementation (no semantic search, no regex, no saved searches).
 
 ---
 
@@ -162,9 +158,9 @@ Do not begin the next task until the current task has been reviewed and accepted
 
 Built with MSVC 19.51 (Visual Studio Build Tools 18) via CMake + Ninja.
 
-- Build: succeeded, including the new `RelationshipCommand` and the shared `repository_path_option` helper factored out of `ObjectCommand`
-- `oep_repository_tests`, `oep_engineering_object_tests`, `oep_relationship_tests`, `oep_graph_engine_tests`, `oep_audit_store_tests`, `oep_search_engine_tests`, `oep_repository_validator_tests`, `oep_package_manager_tests`, `oep_foundation_runtime_tests`, `oep_cli_commands_tests`, `oep_object_command_tests`, `oep_relationship_command_tests` (CTest): 12/12 suites passed
-- Manual smoke test: `oep relationship create/list/show/delete` run correctly against a real generated repository with two objects, including `show` failing descriptively after deletion
-- `platform/runtime/CLI_USAGE.md`: updated with the relationship command table, `--type` enum values, a full object+relationship workflow with real captured output, a validation-rejection example, and new limitations
+- Build: succeeded, including the new `SearchCommand`
+- `oep_repository_tests`, `oep_engineering_object_tests`, `oep_relationship_tests`, `oep_graph_engine_tests`, `oep_audit_store_tests`, `oep_search_engine_tests`, `oep_repository_validator_tests`, `oep_package_manager_tests`, `oep_foundation_runtime_tests`, `oep_cli_commands_tests`, `oep_object_command_tests`, `oep_relationship_command_tests`, `oep_search_command_tests` (CTest): 13/13 suites passed
+- Manual smoke test: bare query, `search objects`, `search relationships`, a `--type` filter, a no-match query, and an invalid-repository case all run correctly against a real generated repository
+- `platform/runtime/CLI_USAGE.md`: updated with the search command/filter tables, a full example session with real captured output, and new limitations
 
-Task 000014 is complete pending formal acceptance.
+Task 000015 is complete pending formal acceptance.
