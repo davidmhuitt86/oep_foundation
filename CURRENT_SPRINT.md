@@ -2,7 +2,7 @@
 # CURRENT_SPRINT.md
 ## Open Engineering Platform (OEP)
 
-Sprint: 015
+Sprint: 016
 
 Status: Active
 
@@ -10,25 +10,25 @@ Status: Active
 
 # Sprint Name
 
-Repository Search CLI Commands
+Repository Graph CLI Commands
 
 ---
 
 # Sprint Objective
 
-Implement Repository Search CLI Commands per OEP-SPEC-015_SEARCH_COMMANDS: `oep search`/`oep search objects`/`oep search relationships`, backed exclusively by Foundation Runtime and the existing `SearchEngine`.
+Implement Repository Graph CLI Commands per OEP-SPEC-016-GRAPH_COMMANDS: `oep graph neighbors|traverse|path`, backed exclusively by Foundation Runtime and the existing `GraphEngine`.
 
-The goal is not to build semantic search, regex search, or saved searches.
+The goal is not to build graph visualization, shortest-path algorithms, or interactive exploration.
 
-The goal is to make Engineering Objects and Relationships discoverable from the CLI without requiring prior knowledge of identifiers, while all search logic stays owned by the Search subsystem.
+The goal is to make the connections between Engineering Objects navigable from the CLI, while all graph algorithms stay owned by the Repository subsystem.
 
 ---
 
 # Primary Deliverable
 
-`SearchCommand`
+`GraphCommand` + `FoundationRuntime::graph_engine()`
 
-A new `search` command supporting a bare query (searches both) and `objects`/`relationships` subcommands, plus `--type`/`--author`/`--tag` filters applied after Search Engine execution.
+`FoundationRuntime` gains a sixth registered service (`GraphEngine`, built the same way `SearchEngine` already is); `GraphCommand` is a thin layer over it.
 
 ---
 
@@ -36,8 +36,8 @@ A new `search` command supporting a bare query (searches both) and `objects`/`re
 
 This sprint includes:
 
-- `search <query>` / `search objects <query>` / `search relationships <query>`
-- `--type`/`--author`/`--tag` filters
+- `FoundationRuntime::graph_engine()`
+- `graph neighbors <object-id>` / `graph traverse <object-id> [--algorithm bfs|dfs]` / `graph path <source> <target>`
 - Updated `platform/runtime/CLI_USAGE.md`
 - Unit tests
 
@@ -47,11 +47,11 @@ This sprint includes:
 
 The following items are explicitly excluded from this sprint:
 
-- Semantic search
-- AI-assisted search
-- Regular expression search
-- Saved searches
-- Advanced query languages
+- Graph visualization
+- Shortest-path algorithms
+- Weighted traversal
+- Interactive graph exploration
+- Graph editing
 - Runtime
 - SDK
 - Studios
@@ -70,13 +70,11 @@ If implementation of these items appears necessary, document the dependency and 
 This sprint is complete when:
 
 - The project builds successfully.
-- Object search and relationship search both execute successfully.
-- Filters operate correctly.
-- Runtime integration is preserved; the CLI never constructs `SearchEngine` directly.
-- Search results remain deterministic (no independent CLI ranking).
-- Help lists the `search` command.
+- Neighbor discovery, BFS traversal, DFS traversal, and path detection all execute successfully.
+- Runtime integration is preserved; the CLI never constructs `GraphEngine` directly.
+- Help lists the `graph` command.
 - `CLI_USAGE.md` is updated.
-- Unit tests covering object search, relationship search, filtering, empty repositories, invalid repositories, no-match results, and Runtime integration pass.
+- Unit tests covering neighbor discovery, BFS/DFS traversal, disconnected graphs, invalid object IDs, path detection, empty repositories, and Runtime integration pass.
 - Documentation is updated.
 
 ---
@@ -255,3 +253,9 @@ Added `oep relationship create|list|show|delete` to `platform/cli`, per OEP-SPEC
 # Task 000015 — Verified Complete
 
 Added `oep search [objects|relationships] <query>` to `platform/cli`, per OEP-SPEC-015_SEARCH_COMMANDS, exposing the existing `SearchEngine` through `FoundationRuntime` with no independent CLI ranking — filtering happens after `SearchEngine` returns results and only ever removes entries, never reorders them. Reused the shared `--repository` helper from Sprint 014. `--type`/`--author` filter both object and relationship results by loading each hit's full record; `--tag` only applies to objects, since `Relationship` has no tags field (documented rather than silently ignored or erroring). Updated `platform/runtime/CLI_USAGE.md` with the search command/filter tables and a full example session with real captured output. Built with MSVC 19.51 via CMake/Ninja; `oep_search_command_tests` (10 cases: object search, relationship search, a bare query searching both, the three filters each individually excluding a non-matching entry, no-match handling, an empty repository, an invalid repository, and a missing query) passed via CTest alongside the existing twelve suites (13/13 suites). Manually smoke-tested bare/objects/relationships forms, a type filter, and an invalid-repository case against a real generated repository. `oep init` re-verified unaffected. Sprint 015 acceptance criteria are satisfied.
+
+---
+
+# Task 000016 — Verified Complete
+
+Extended `FoundationRuntime` with a sixth registered service, `graph_engine()`, built via `GraphEngine::build_graph` during `open_repository` exactly the way `SearchEngine` already is — this was a real gap: the spec required graph commands to never construct `GraphEngine` directly, but Runtime never exposed one at all until now. Added `oep graph neighbors|traverse|path` to `platform/cli`, per OEP-SPEC-016-GRAPH_COMMANDS, each subcommand a thin layer over the new accessor: `neighbors` lists directly connected objects with their relationship type; `traverse` supports `--algorithm bfs` (default) / `dfs`, delegating entirely to `GraphEngine`'s existing traversal; `path` reports only Path Found / No Path Found. Updated `platform/runtime/CLI_USAGE.md` and `platform/runtime/README.md` (service list) with the graph command/filter tables and a full four-object example session with real captured output, including a disconnected node. Built with MSVC 19.51 via CMake/Ninja; `oep_graph_command_tests` (10 cases: neighbor listing, an isolated object reporting none, BFS and DFS traversal over a connected component that correctly excludes a disconnected node, path found/not-found, an invalid object ID, an empty repository, an invalid repository, and an unknown subcommand) passed via CTest alongside the existing thirteen suites (14/14 suites). Manually smoke-tested neighbors/traverse (both algorithms)/path against a real four-object, two-relationship graph, including the disconnected-node case. `oep init` re-verified unaffected. Sprint 016 acceptance criteria are satisfied.

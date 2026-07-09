@@ -58,6 +58,7 @@ Running `oep` with no arguments, or with `--help`/`-h`, shows the help listing.
 | object | `oep object <create\|list\|show\|delete> [arguments] [--repository <path>]` | Create, list, show, and delete Engineering Objects |
 | relationship | `oep relationship <create\|list\|show\|delete> [arguments] [--repository <path>]` | Create, list, show, and delete Relationships |
 | search | `oep search [objects\|relationships] <query> [--type <type>] [--author <author>] [--tag <tag>] [--repository <path>]` | Search Engineering Objects and Relationships |
+| graph | `oep graph <neighbors\|traverse\|path> <object-id> [<target-object-id>] [--algorithm bfs\|dfs] [--repository <path>]` | Explore Engineering Objects through their Relationships |
 | help | `oep help` | Display available commands |
 
 `validate`, `packages`, and `status` default to the current working directory when no repository path is given. `open` and `init` require an explicit argument. `object` and `relationship` subcommands default to the current working directory unless `--repository <path>` is given — a flag rather than a positional argument, since their `show`/`delete` subcommands already use the one positional slot for the object/relationship ID.
@@ -101,6 +102,16 @@ Available filters (applied by the CLI *after* the Search Engine returns results 
 | `--tag <tag>` | objects only | Exact tag match; has no effect on relationship search, since Relationships have no tags |
 
 Object results show Object ID, Object Type, Name, Match Score, and Match Location. Relationship results show Relationship ID, Relationship Type, Source Object ID, Target Object ID, Match Score, and Match Location. Search is case-insensitive and partial-match capable (inherited from `SearchEngine`); the CLI never re-ranks or re-sorts what the Search Engine returns.
+
+### Graph commands
+
+| Subcommand | Syntax | Description |
+|---|---|---|
+| neighbors | `oep graph neighbors <object-id> [--repository <path>]` | List every object directly connected to `<object-id>` |
+| traverse | `oep graph traverse <object-id> [--algorithm bfs\|dfs] [--repository <path>]` | Visit every object reachable from `<object-id>` |
+| path | `oep graph path <source-object-id> <target-object-id> [--repository <path>]` | Report whether a path exists between two objects |
+
+`traverse` defaults to Breadth-First Search (BFS); pass `--algorithm dfs` for Depth-First Search. Both algorithms are implemented entirely by `GraphEngine` (see `platform/repository`) — the CLI only formats what it returns. `neighbors` reports Neighbor Object ID/Type/Name and the connecting Relationship Type. `traverse` reports each visited object in traversal order, numbered, with its Object ID/Type/Name. `path` reports only `Path Found` or `No Path Found` — there is no shortest-path computation.
 
 ---
 
@@ -232,6 +243,53 @@ Objects:
   No matching objects found.
 ```
 
+### Exploring the graph
+
+```text
+$ oep object create --type Document --name A
+Created object '2da6763b-970d-4ea9-940d-4209b7cb8a1d' (Document) 'A'
+
+$ oep object create --type Component --name B
+Created object '70d1bb99-d796-4aa1-bd66-a8491638340f' (Component) 'B'
+
+$ oep object create --type Component --name C
+Created object '17ee1e73-18ca-49fa-8ac0-6482d95d429d' (Component) 'C'
+
+$ oep object create --type Component --name D
+Created object '2b909019-c5ba-4e74-913e-dcd5e8c6d4ae' (Component) 'D'
+
+$ oep relationship create --source 2da6763b-970d-4ea9-940d-4209b7cb8a1d --target 70d1bb99-d796-4aa1-bd66-a8491638340f --type ConnectedTo
+Created relationship '...' (ConnectedTo) '2da6763b-...' -> '70d1bb99-...'
+
+$ oep relationship create --source 70d1bb99-d796-4aa1-bd66-a8491638340f --target 17ee1e73-18ca-49fa-8ac0-6482d95d429d --type ConnectedTo
+Created relationship '...' (ConnectedTo) '70d1bb99-...' -> '17ee1e73-...'
+
+$ oep graph neighbors 70d1bb99-d796-4aa1-bd66-a8491638340f
+Neighbors:
+  2da6763b-970d-4ea9-940d-4209b7cb8a1d	Document	A	ConnectedTo
+  17ee1e73-18ca-49fa-8ac0-6482d95d429d	Component	C	ConnectedTo
+
+$ oep graph traverse 2da6763b-970d-4ea9-940d-4209b7cb8a1d
+Traversal (BFS):
+  1	2da6763b-970d-4ea9-940d-4209b7cb8a1d	Document	A
+  2	70d1bb99-d796-4aa1-bd66-a8491638340f	Component	B
+  3	17ee1e73-18ca-49fa-8ac0-6482d95d429d	Component	C
+
+$ oep graph traverse 2da6763b-970d-4ea9-940d-4209b7cb8a1d --algorithm dfs
+Traversal (DFS):
+  1	2da6763b-970d-4ea9-940d-4209b7cb8a1d	Document	A
+  2	70d1bb99-d796-4aa1-bd66-a8491638340f	Component	B
+  3	17ee1e73-18ca-49fa-8ac0-6482d95d429d	Component	C
+
+$ oep graph path 2da6763b-970d-4ea9-940d-4209b7cb8a1d 17ee1e73-18ca-49fa-8ac0-6482d95d429d
+Path Found
+
+$ oep graph path 2da6763b-970d-4ea9-940d-4209b7cb8a1d 2b909019-c5ba-4e74-913e-dcd5e8c6d4ae
+No Path Found
+```
+
+`D` was never connected to anything, so it doesn't appear in `A`'s traversal and has no path to `A`.
+
 ### An invalid or missing repository
 
 ```text
@@ -295,6 +353,9 @@ Packages are discovered under the repository's top-level `packages/` directory; 
 - `oep relationship list` always sorts by Relationship ID; there is no filtering or alternate sort order yet.
 - `oep search` supports exact `--type`/`--author`/`--tag` matches only (no partial-match filters); `--tag` has no effect when searching relationships, since Relationships have no tags field.
 - There is no semantic search, AI-assisted search, regular-expression search, saved searches, or query language — only the case-insensitive, partial-match search `SearchEngine` already provides.
+- `oep graph` treats every relationship as connecting its two objects bidirectionally for traversal purposes, regardless of which end is `sourceObjectId` vs. `targetObjectId` (this mirrors `GraphEngine`'s own behavior, not a CLI-specific choice).
+- `oep graph path` reports only whether a path exists — there is no shortest-path computation, path visualization, or listing of the relationships along the way.
+- `oep graph traverse` supports BFS and DFS only; there is no weighted traversal or interactive/step-by-step exploration.
 
 ---
 

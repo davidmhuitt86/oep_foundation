@@ -13,3 +13,7 @@ add_test(NAME oep_relationship_command_tests COMMAND oep_relationship_command_te
 add_executable(oep_search_command_tests search_command_tests.cpp)
 target_link_libraries(oep_search_command_tests PRIVATE oep_cli_core)
 add_test(NAME oep_search_command_tests COMMAND oep_search_command_tests)
+
+add_executable(oep_graph_command_tests graph_command_tests.cpp)
+target_link_libraries(oep_graph_command_tests PRIVATE oep_cli_core)
+add_test(NAME oep_graph_command_tests COMMAND oep_graph_command_tests)

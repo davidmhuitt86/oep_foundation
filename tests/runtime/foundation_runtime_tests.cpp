@@ -123,6 +123,7 @@ void test_services_and_context_available_only_while_open(const std::filesystem::
     check(runtime.relationship_store() != nullptr, "relationship_store is available once a repository is open");
     check(runtime.audit_store() != nullptr, "audit_store is available once a repository is open");
     check(runtime.search_engine() != nullptr, "search_engine is available once a repository is open");
+    check(runtime.graph_engine() != nullptr, "graph_engine is available once a repository is open");
     check(runtime.validator() != nullptr, "validator is available once a repository is open");
     check(runtime.package_manager() != nullptr, "package_manager is available once a repository is open");
 

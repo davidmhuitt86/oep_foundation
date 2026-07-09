@@ -2,7 +2,7 @@
 # TASK.md
 ## Open Engineering Platform (OEP)
 
-Task ID: 000015
+Task ID: 000016
 
 Status: Complete
 
@@ -10,19 +10,17 @@ Status: Complete
 
 # Current Task
 
-Implement Repository Search CLI Commands per OEP-SPEC-015_SEARCH_COMMANDS.
+Implement Repository Graph CLI Commands per OEP-SPEC-016-GRAPH_COMMANDS.
 
-This delivers `oep search <query>`, `oep search objects <query>`, and `oep search relationships <query>`, exposing the existing `SearchEngine` through Foundation Runtime, with post-search filtering by `--type`/`--author`/`--tag`.
+This delivers `oep graph neighbors|traverse|path`, exposing the existing `GraphEngine` (implemented in Sprint 007) through Foundation Runtime.
 
 ---
 
 # Context
 
-TASK-000014 (Engineering Relationship CLI Commands) is complete and accepted.
+TASK-000015 (Repository Search CLI Commands) is complete and accepted.
 
-OEP-SPEC-015_SEARCH_COMMANDS.md defines the three command forms, required object/relationship result fields, the three supported filters (applied after Search Engine execution, never reordering results), and requires the CLI never instantiate `SearchEngine` directly or implement independent ranking. Semantic search, AI-assisted search, regex search, saved searches, and advanced query languages are explicitly deferred.
-
-`--tag` has no effect on relationship search, since `Relationship` has no tags field (only `EngineeringObject` does) — this is documented rather than silently mis-filtering or erroring.
+OEP-SPEC-016-GRAPH_COMMANDS.md requires every graph command to go through Foundation Runtime and never instantiate the Graph Engine directly — but `FoundationRuntime` (Sprint 011) never registered `GraphEngine` as a service in the first place; only `ObjectStore`/`RelationshipStore`/`AuditStore`/`SearchEngine`/`RepositoryValidator`/`PackageManager` were wired in. This task extends `FoundationRuntime` with a `graph_engine()` accessor (built via `GraphEngine::build_graph` during `open_repository`, reset on close/shutdown, following the exact pattern the other five services already use) before building the CLI command on top of it.
 
 ---
 
@@ -32,43 +30,37 @@ Complete the following tasks only.
 
 ## Objective 1
 
-Add `SearchCommand` (registered as `search`) to `platform/cli`. `oep search <query>` searches both objects and relationships; `oep search objects <query>` / `oep search relationships <query>` search just one.
+Extend `FoundationRuntime` to build and expose a `GraphEngine`, consistent with how it already builds and exposes `SearchEngine`.
 
 ---
 
 ## Objective 2
 
-Support `--type`, `--author`, `--tag` filters (plus the existing `--repository`), applied by the CLI after `SearchEngine` returns results — never re-ranking or reordering, only removing non-matching entries.
+Add `GraphCommand` (registered as `graph`) to `platform/cli`, dispatching to `neighbors <object-id>`, `traverse <object-id>`, `path <source-object-id> <target-object-id>`.
 
 ---
 
 ## Objective 3
 
-Object search results display Object ID, Object Type, Name, Match Score, Match Location. Relationship search results display Relationship ID, Relationship Type, Source Object ID, Target Object ID, Match Score, Match Location.
+`neighbors` displays Neighbor Object ID, Neighbor Object Type, Neighbor Object Name, Relationship Type. `traverse` supports `--algorithm bfs` (default) / `--algorithm dfs` and displays Traversal Order, Object ID, Object Type, Object Name. `path` reports only Path Found / No Path Found.
 
 ---
 
 ## Objective 4
 
-Gracefully report: repository not found, empty repository, no matching results, invalid command syntax — all via descriptive errors, none exposing internal implementation details.
+Register `GraphCommand` so Help lists it consistently with existing commands.
 
 ---
 
 ## Objective 5
 
-Register `SearchCommand` so Help lists it consistently with existing commands.
+Update `platform/runtime/CLI_USAGE.md` with graph command syntax, BFS/DFS usage, neighbor discovery examples, path detection examples, expected output, and current limitations.
 
 ---
 
 ## Objective 6
 
-Update `platform/runtime/CLI_USAGE.md` with search command syntax, available filters, example searches, expected output, and current limitations.
-
----
-
-## Objective 7
-
-Add unit tests validating object search, relationship search, filtering (type/author/tag), empty repositories, invalid repositories, no-match results, and Runtime integration.
+Add unit tests validating neighbor discovery, BFS traversal, DFS traversal, disconnected graphs, invalid object IDs, path detection, empty repositories, and Runtime integration (including that `FoundationRuntime::graph_engine()` follows the same open/close availability pattern as the other five services).
 
 ---
 
@@ -76,11 +68,11 @@ Add unit tests validating object search, relationship search, filtering (type/au
 
 Do not implement:
 
-- Semantic search
-- AI-assisted search
-- Regular expression search
-- Saved searches
-- Advanced query languages
+- Graph visualization
+- Shortest-path algorithms
+- Weighted traversal
+- Interactive graph exploration
+- Graph editing
 - Runtime, SDK, Studios, Exchange, Networking, Authentication, Plugin system, GUI
 
 These systems belong to future tasks.
@@ -89,7 +81,8 @@ These systems belong to future tasks.
 
 # Deliverables
 
-- `SearchCommand` (`oep search`, `oep search objects`, `oep search relationships`)
+- `FoundationRuntime::graph_engine()` accessor
+- `GraphCommand` (`neighbors`/`traverse`/`path`)
 - Updated `platform/runtime/CLI_USAGE.md`
 - Unit tests
 
@@ -100,14 +93,11 @@ These systems belong to future tasks.
 This task is complete only when:
 
 - The project builds successfully.
-- Object search executes successfully.
-- Relationship search executes successfully.
-- Search filters operate correctly.
-- Runtime integration is preserved (no direct `SearchEngine` construction in the CLI).
-- Search results remain deterministic (CLI never re-ranks).
-- Help lists the `search` command.
+- Neighbor discovery, BFS traversal, DFS traversal, and path detection all execute successfully.
+- Runtime integration is preserved — no command constructs `GraphEngine` (or any Repository service) directly.
+- Help lists the `graph` command.
 - `CLI_USAGE.md` is updated.
-- Unit tests covering object search, relationship search, filtering, empty repositories, invalid repositories, no-match results, and Runtime integration pass.
+- Unit tests covering neighbor discovery, BFS/DFS traversal, disconnected graphs, invalid object IDs, path detection, empty repositories, and Runtime integration pass.
 
 ---
 
@@ -119,9 +109,9 @@ Favor maintainability.
 
 Favor simplicity.
 
-The CLI never instantiates `SearchEngine` directly and never implements independent ranking — all search logic stays owned by the Search subsystem.
+The CLI never implements traversal logic itself — all graph algorithms stay owned by `GraphEngine` in `platform/repository`.
 
-Avoid speculative implementation (no semantic search, no regex, no saved searches).
+Avoid speculative implementation (no visualization, no shortest-path, no weighted/interactive traversal).
 
 ---
 
@@ -158,9 +148,9 @@ Do not begin the next task until the current task has been reviewed and accepted
 
 Built with MSVC 19.51 (Visual Studio Build Tools 18) via CMake + Ninja.
 
-- Build: succeeded, including the new `SearchCommand`
-- `oep_repository_tests`, `oep_engineering_object_tests`, `oep_relationship_tests`, `oep_graph_engine_tests`, `oep_audit_store_tests`, `oep_search_engine_tests`, `oep_repository_validator_tests`, `oep_package_manager_tests`, `oep_foundation_runtime_tests`, `oep_cli_commands_tests`, `oep_object_command_tests`, `oep_relationship_command_tests`, `oep_search_command_tests` (CTest): 13/13 suites passed
-- Manual smoke test: bare query, `search objects`, `search relationships`, a `--type` filter, a no-match query, and an invalid-repository case all run correctly against a real generated repository
-- `platform/runtime/CLI_USAGE.md`: updated with the search command/filter tables, a full example session with real captured output, and new limitations
+- Build: succeeded, including `FoundationRuntime::graph_engine()` and the new `GraphCommand`
+- `oep_repository_tests`, `oep_engineering_object_tests`, `oep_relationship_tests`, `oep_graph_engine_tests`, `oep_audit_store_tests`, `oep_search_engine_tests`, `oep_repository_validator_tests`, `oep_package_manager_tests`, `oep_foundation_runtime_tests`, `oep_cli_commands_tests`, `oep_object_command_tests`, `oep_relationship_command_tests`, `oep_search_command_tests`, `oep_graph_command_tests` (CTest): 14/14 suites passed
+- Manual smoke test: `graph neighbors`/`graph traverse` (both BFS and DFS)/`graph path` (found and not-found) all run correctly against a real four-object, two-relationship generated repository, plus an invalid-object-ID error case
+- `platform/runtime/CLI_USAGE.md` and `platform/runtime/README.md`: updated with the graph command tables, BFS/DFS explanation, a full example session with real captured output, and new limitations
 
-Task 000015 is complete pending formal acceptance.
+Task 000016 is complete pending formal acceptance.

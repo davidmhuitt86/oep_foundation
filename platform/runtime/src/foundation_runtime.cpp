@@ -27,6 +27,7 @@ void FoundationRuntime::reset_repository_context() {
     objects_.reset();
     relationships_.reset();
     search_.reset();
+    graph_.reset();
     validator_.reset();
     packages_.reset();
 }
@@ -64,6 +65,9 @@ RuntimeResult FoundationRuntime::open_repository(std::filesystem::path repositor
     oep::search::SearchEngine search;
     search.build_index(objects, relationships);
 
+    oep::repository::GraphEngine graph;
+    graph.build_graph(objects, relationships);
+
     oep::validation::RepositoryValidator validator(repository_root / "repository.json", objects, relationships,
                                                     audit);
 
@@ -75,6 +79,7 @@ RuntimeResult FoundationRuntime::open_repository(std::filesystem::path repositor
     objects_ = std::move(objects);
     relationships_ = std::move(relationships);
     search_ = std::move(search);
+    graph_ = std::move(graph);
     validator_ = std::move(validator);
     packages_ = std::move(packages);
 
@@ -141,6 +146,10 @@ const oep::repository::AuditStore* FoundationRuntime::audit_store() const {
 
 const oep::search::SearchEngine* FoundationRuntime::search_engine() const {
     return state_ == RuntimeState::RepositoryOpen ? &(*search_) : nullptr;
+}
+
+const oep::repository::GraphEngine* FoundationRuntime::graph_engine() const {
+    return state_ == RuntimeState::RepositoryOpen ? &(*graph_) : nullptr;
 }
 
 const oep::validation::RepositoryValidator* FoundationRuntime::validator() const {

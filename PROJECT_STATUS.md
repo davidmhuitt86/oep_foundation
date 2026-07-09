@@ -195,7 +195,7 @@ In Progress
 
 CLI
 
-Complete (v0.1.0 — `version`/`init`/`open`/`validate`/`packages`/`status`/`object`/`relationship`/`search`/`help`, per OEP-SPEC-012/013/014/015; Runtime-backed, no session persistence across invocations)
+Complete (v0.1.0 — `version`/`init`/`open`/`validate`/`packages`/`status`/`object`/`relationship`/`search`/`graph`/`help`, per OEP-SPEC-012/013/014/015/016; Runtime-backed, no session persistence across invocations)
 
 Foundation Generator
 
@@ -227,7 +227,7 @@ Complete (`PackageManager` — discover/load/list, Loaded/Invalid/Disabled state
 
 Runtime
 
-Complete (`FoundationRuntime` — lifecycle + service registry for Repository/Search/Validation/Package Manager — per OEP-SPEC-011; not yet wired into `oep init`/CLI)
+Complete (`FoundationRuntime` — lifecycle + service registry for Repository/Search/Graph/Validation/Package Manager — per OEP-SPEC-011; now the backing for every `oep` command that touches a repository)
 
 SDK
 

@@ -7,6 +7,7 @@
 
 #include "oep/packages/package_manager.hpp"
 #include "oep/repository/audit_store.hpp"
+#include "oep/repository/graph_engine.hpp"
 #include "oep/repository/metadata.hpp"
 #include "oep/repository/object_store.hpp"
 #include "oep/repository/relationship_store.hpp"
@@ -93,6 +94,7 @@ public:
     const oep::repository::RelationshipStore* relationship_store() const;
     const oep::repository::AuditStore* audit_store() const;
     const oep::search::SearchEngine* search_engine() const;
+    const oep::repository::GraphEngine* graph_engine() const;
     const oep::validation::RepositoryValidator* validator() const;
     const oep::packages::PackageManager* package_manager() const;
 
@@ -106,6 +108,7 @@ private:
     std::optional<oep::repository::ObjectStore> objects_;
     std::optional<oep::repository::RelationshipStore> relationships_;
     std::optional<oep::search::SearchEngine> search_;
+    std::optional<oep::repository::GraphEngine> graph_;
     std::optional<oep::validation::RepositoryValidator> validator_;
     std::optional<oep::packages::PackageManager> packages_;
 
