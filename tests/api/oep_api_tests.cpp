@@ -1,6 +1,9 @@
 #include "oep/api/oep_api.h"
 
+#include "oep/repository/audit_store.hpp"
 #include "oep/repository/metadata.hpp"
+#include "oep/repository/object_store.hpp"
+#include "oep/repository/relationship_store.hpp"
 
 #include <cstring>
 #include <filesystem>
@@ -29,6 +32,39 @@ std::filesystem::path build_repository(const std::filesystem::path& root) {
     metadata.template_version = "1.0";
     metadata.created_utc = "2026-01-01T00:00:00Z";
     oep::repository::save_metadata(root / "repository.json", metadata);
+
+    return root;
+}
+
+// Builds a repository with the same metadata as build_repository, plus two
+// Engineering Objects (one Component with tags, one Document) and one
+// Relationship between them, for enumeration/statistics tests.
+std::filesystem::path build_populated_repository(const std::filesystem::path& root) {
+    build_repository(root);
+
+    oep::repository::AuditStore audit(root / "repository" / "audit");
+    oep::repository::ObjectStore objects(root / "repository" / "objects", audit);
+    oep::repository::RelationshipStore relationships(root / "repository" / "relationships", objects, audit);
+
+    oep::repository::EngineeringObject coil;
+    coil.object_type = oep::repository::ObjectType::Component;
+    coil.name = "Ignition Coil";
+    coil.description = "Generates spark";
+    coil.author = "Jane";
+    coil.tags = {"electrical", "ignition"};
+    const oep::repository::LoadObjectResult coil_created = objects.create(coil);
+
+    oep::repository::EngineeringObject manual;
+    manual.object_type = oep::repository::ObjectType::Document;
+    manual.name = "Manual";
+    manual.author = "Jane";
+    const oep::repository::LoadObjectResult manual_created = objects.create(manual);
+
+    oep::repository::Relationship relationship;
+    relationship.source_object_id = manual_created.object.object_id;
+    relationship.target_object_id = coil_created.object.object_id;
+    relationship.relationship_type = oep::repository::RelationshipType::Documents;
+    relationships.create(relationship);
 
     return root;
 }
@@ -167,6 +203,166 @@ void test_repository_status_fails_without_open_repository() {
     oep_runtime_destroy(runtime);
 }
 
+void test_object_enumeration(const std::filesystem::path& scratch_dir) {
+    const std::filesystem::path root = build_populated_repository(scratch_dir / "enumeration");
+
+    OEP_Runtime runtime = oep_runtime_create("0.1.0");
+    oep_runtime_initialize(runtime);
+    oep_runtime_open_repository(runtime, root.string().c_str());
+
+    int count = -1;
+    const oep_result_t count_result = oep_object_store_get_count(runtime, &count);
+    check(count_result.success, "oep_object_store_get_count succeeds while a repository is open");
+    check(count == 2, "the object count reflects both created objects");
+
+    oep_object_list_t list;
+    const oep_result_t list_result = oep_object_store_list(runtime, &list);
+    check(list_result.success, "oep_object_store_list succeeds while a repository is open");
+    check(list.count == 2, "the enumerated list contains both objects");
+    check(list.items != nullptr, "a non-empty list has a non-NULL items array");
+
+    if (list.count == 2) {
+        check(std::string(list.items[0].object_id) < std::string(list.items[1].object_id),
+              "the enumerated list is sorted deterministically by object_id");
+    }
+
+    bool found_coil = false;
+    for (int i = 0; i < list.count; ++i) {
+        if (std::string(list.items[i].name) == "Ignition Coil") {
+            found_coil = true;
+            check(list.items[i].object_type == OEP_OBJECT_TYPE_COMPONENT,
+                  "the enumerated Ignition Coil object reports OEP_OBJECT_TYPE_COMPONENT");
+            check(std::string(list.items[i].author) == "Jane", "the enumerated object reports the correct author");
+            check(list.items[i].tag_count == 2, "the enumerated object reports both tags");
+        }
+    }
+    check(found_coil, "the enumerated list includes the Ignition Coil object");
+
+    // Repeating enumeration produces the same order (determinism across calls).
+    oep_object_list_t second_list;
+    oep_object_store_list(runtime, &second_list);
+    bool same_order = second_list.count == list.count;
+    for (int i = 0; same_order && i < list.count; ++i) {
+        same_order = std::string(list.items[i].object_id) == std::string(second_list.items[i].object_id);
+    }
+    check(same_order, "repeated enumeration produces the same deterministic order");
+
+    oep_object_list_release(&list);
+    check(list.items == nullptr && list.count == 0, "oep_object_list_release zeroes the released list");
+    oep_object_list_release(&second_list);
+
+    // Releasing an already-released (zeroed) list is a safe no-op.
+    oep_object_list_release(&list);
+    check(true, "releasing an already-released list does not crash");
+
+    oep_object_list_release(nullptr);
+    check(true, "oep_object_list_release(NULL) does not crash");
+
+    oep_runtime_destroy(runtime);
+}
+
+void test_object_lookup_by_id(const std::filesystem::path& scratch_dir) {
+    const std::filesystem::path root = build_populated_repository(scratch_dir / "lookup");
+
+    OEP_Runtime runtime = oep_runtime_create("0.1.0");
+    oep_runtime_initialize(runtime);
+    oep_runtime_open_repository(runtime, root.string().c_str());
+
+    oep_object_list_t list;
+    oep_object_store_list(runtime, &list);
+    check(list.count == 2, "the fixture repository has exactly two objects for the lookup test");
+
+    if (list.count == 2) {
+        oep_object_info_t looked_up;
+        const oep_result_t lookup_result = oep_object_store_get_by_id(runtime, list.items[0].object_id, &looked_up);
+        check(lookup_result.success, "looking up an existing object by ID succeeds");
+        check(std::string(looked_up.object_id) == std::string(list.items[0].object_id),
+              "the looked-up object has the requested object_id");
+        check(std::string(looked_up.name) == std::string(list.items[0].name),
+              "the looked-up object has the requested name");
+    }
+    oep_object_list_release(&list);
+
+    oep_object_info_t missing;
+    const oep_result_t missing_result =
+        oep_object_store_get_by_id(runtime, "00000000-0000-4000-8000-000000000000", &missing);
+    check(!missing_result.success && missing_result.error_code == OEP_ERROR_NOT_FOUND,
+          "looking up a nonexistent object ID fails with OEP_ERROR_NOT_FOUND");
+    check(std::string(missing.object_id).empty(), "a failed lookup zero-initializes the output structure");
+
+    const oep_result_t null_id_result = oep_object_store_get_by_id(runtime, nullptr, &missing);
+    check(!null_id_result.success && null_id_result.error_code == OEP_ERROR_INVALID_ARGUMENT,
+          "looking up with a NULL object_id fails with OEP_ERROR_INVALID_ARGUMENT");
+
+    oep_runtime_destroy(runtime);
+}
+
+void test_object_enumeration_requires_open_repository() {
+    OEP_Runtime runtime = oep_runtime_create("0.1.0");
+    oep_runtime_initialize(runtime);
+
+    int count = -1;
+    const oep_result_t count_result = oep_object_store_get_count(runtime, &count);
+    check(!count_result.success && count_result.error_code == OEP_ERROR_INVALID_STATE,
+          "getting the object count without an open repository fails with OEP_ERROR_INVALID_STATE");
+    check(count == 0, "a failed count call resets out_count to zero");
+
+    oep_object_list_t list;
+    const oep_result_t list_result = oep_object_store_list(runtime, &list);
+    check(!list_result.success && list_result.error_code == OEP_ERROR_INVALID_STATE,
+          "listing objects without an open repository fails with OEP_ERROR_INVALID_STATE");
+    check(list.items == nullptr && list.count == 0, "a failed list call is zero-initialized");
+
+    oep_runtime_destroy(runtime);
+}
+
+void test_repository_statistics(const std::filesystem::path& scratch_dir) {
+    const std::filesystem::path root = build_populated_repository(scratch_dir / "statistics");
+
+    OEP_Runtime runtime = oep_runtime_create("0.1.0");
+    oep_runtime_initialize(runtime);
+    oep_runtime_open_repository(runtime, root.string().c_str());
+
+    oep_repository_statistics_t statistics;
+    const oep_result_t statistics_result = oep_runtime_get_repository_statistics(runtime, &statistics);
+    check(statistics_result.success, "oep_runtime_get_repository_statistics succeeds while a repository is open");
+    check(std::string(statistics.repository_id) == "1b9e1b02-e845-482a-b299-1e15ffe3932b",
+          "statistics report the correct repository_id");
+    check(std::string(statistics.repository_name) == "my-workshop", "statistics report the correct repository_name");
+    check(statistics.total_object_count == 2, "statistics report the correct total object count");
+    check(statistics.object_count_by_type[OEP_OBJECT_TYPE_COMPONENT] == 1,
+          "statistics report exactly one Component object");
+    check(statistics.object_count_by_type[OEP_OBJECT_TYPE_DOCUMENT] == 1,
+          "statistics report exactly one Document object");
+    check(statistics.object_count_by_type[OEP_OBJECT_TYPE_DIAGRAM] == 0,
+          "statistics report zero for an object type not present in the repository");
+    check(statistics.relationship_count == 1, "statistics report the correct relationship count");
+    check(statistics.package_count == 0, "statistics report zero packages for a package-free repository");
+
+    oep_runtime_destroy(runtime);
+}
+
+void test_repository_statistics_requires_open_repository() {
+    OEP_Runtime runtime = oep_runtime_create("0.1.0");
+    oep_runtime_initialize(runtime);
+
+    oep_repository_statistics_t statistics;
+    statistics.total_object_count = 99; // deliberately nonzero, to confirm the API resets it
+    const oep_result_t result = oep_runtime_get_repository_statistics(runtime, &statistics);
+    check(!result.success && result.error_code == OEP_ERROR_INVALID_STATE,
+          "getting repository statistics without an open repository fails with OEP_ERROR_INVALID_STATE");
+    check(statistics.total_object_count == 0, "a failed statistics call zero-initializes the output structure");
+
+    oep_runtime_destroy(runtime);
+}
+
+void test_object_type_to_string() {
+    check(std::string(oep_object_type_to_string(OEP_OBJECT_TYPE_COMPONENT)) == "Component",
+          "OEP_OBJECT_TYPE_COMPONENT stringifies correctly");
+    check(std::string(oep_object_type_to_string(OEP_OBJECT_TYPE_DOCUMENT)) == "Document",
+          "OEP_OBJECT_TYPE_DOCUMENT stringifies correctly");
+}
+
 void test_destroy_closes_an_open_repository(const std::filesystem::path& scratch_dir) {
     const std::filesystem::path root = build_repository(scratch_dir / "destroy-open");
 
@@ -196,6 +392,12 @@ int main() {
     test_open_repository_reports_not_found(scratch_dir);
     test_open_repository_rejects_null_path();
     test_repository_status_fails_without_open_repository();
+    test_object_enumeration(scratch_dir);
+    test_object_lookup_by_id(scratch_dir);
+    test_object_enumeration_requires_open_repository();
+    test_repository_statistics(scratch_dir);
+    test_repository_statistics_requires_open_repository();
+    test_object_type_to_string();
     test_destroy_closes_an_open_repository(scratch_dir);
 
     std::filesystem::remove_all(scratch_dir);

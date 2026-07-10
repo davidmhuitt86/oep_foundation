@@ -23,6 +23,36 @@ void zero_status(oep_repository_status_t* out_status) {
     out_status->loaded_package_count = 0;
 }
 
+void zero_object_info(oep_object_info_t* out_object) {
+    out_object->object_id[0] = '\0';
+    out_object->object_type = OEP_OBJECT_TYPE_DOCUMENT;
+    out_object->name[0] = '\0';
+    out_object->author[0] = '\0';
+    out_object->version[0] = '\0';
+    out_object->description[0] = '\0';
+    out_object->tag_count = 0;
+    for (int i = 0; i < OEP_MAX_OBJECT_TAGS; ++i) {
+        out_object->tags[i][0] = '\0';
+    }
+}
+
+void zero_object_list(oep_object_list_t* out_list) {
+    out_list->items = nullptr;
+    out_list->count = 0;
+}
+
+void zero_statistics(oep_repository_statistics_t* out_statistics) {
+    out_statistics->repository_id[0] = '\0';
+    out_statistics->repository_name[0] = '\0';
+    out_statistics->repository_version[0] = '\0';
+    out_statistics->total_object_count = 0;
+    for (int i = 0; i < OEP_OBJECT_TYPE_COUNT; ++i) {
+        out_statistics->object_count_by_type[i] = 0;
+    }
+    out_statistics->relationship_count = 0;
+    out_statistics->package_count = 0;
+}
+
 } // namespace
 
 namespace oep::api::detail {
@@ -66,11 +96,44 @@ oep_result_t make_error_result(oep_error_code_t code, oep_error_category_t categ
     return result;
 }
 
+oep_object_type_t to_capi_object_type(oep::repository::ObjectType type) {
+    switch (type) {
+        case oep::repository::ObjectType::Document: return OEP_OBJECT_TYPE_DOCUMENT;
+        case oep::repository::ObjectType::Diagram: return OEP_OBJECT_TYPE_DIAGRAM;
+        case oep::repository::ObjectType::Component: return OEP_OBJECT_TYPE_COMPONENT;
+        case oep::repository::ObjectType::Procedure: return OEP_OBJECT_TYPE_PROCEDURE;
+        case oep::repository::ObjectType::Project: return OEP_OBJECT_TYPE_PROJECT;
+        case oep::repository::ObjectType::Image: return OEP_OBJECT_TYPE_IMAGE;
+    }
+    return OEP_OBJECT_TYPE_DOCUMENT;
+}
+
+void populate_object_info(const oep::repository::EngineeringObject& object, oep_object_info_t* out_object) {
+    copy_truncated(object.object_id, out_object->object_id, sizeof(out_object->object_id));
+    out_object->object_type = to_capi_object_type(object.object_type);
+    copy_truncated(object.name, out_object->name, sizeof(out_object->name));
+    copy_truncated(object.author, out_object->author, sizeof(out_object->author));
+    copy_truncated(object.version, out_object->version, sizeof(out_object->version));
+    copy_truncated(object.description, out_object->description, sizeof(out_object->description));
+
+    const int tag_count =
+        static_cast<int>(object.tags.size()) < OEP_MAX_OBJECT_TAGS ? static_cast<int>(object.tags.size())
+                                                                    : OEP_MAX_OBJECT_TAGS;
+    out_object->tag_count = tag_count;
+    for (int i = 0; i < tag_count; ++i) {
+        copy_truncated(object.tags[static_cast<std::size_t>(i)], out_object->tags[i], OEP_MAX_TAG_LENGTH);
+    }
+    for (int i = tag_count; i < OEP_MAX_OBJECT_TAGS; ++i) {
+        out_object->tags[i][0] = '\0';
+    }
+}
+
 } // namespace oep::api::detail
 
 using oep::api::detail::category_for_code;
 using oep::api::detail::make_error_result;
 using oep::api::detail::make_success_result;
+using oep::api::detail::populate_object_info;
 
 extern "C" {
 
@@ -306,6 +369,208 @@ oep_result_t oep_runtime_get_repository_status(OEP_Runtime runtime, oep_reposito
         return make_error_result(OEP_ERROR_INTERNAL, category_for_code(OEP_ERROR_INTERNAL), ex.what());
     } catch (...) {
         zero_status(out_status);
+        return make_error_result(OEP_ERROR_INTERNAL, category_for_code(OEP_ERROR_INTERNAL), "unknown internal error");
+    }
+}
+
+const char* oep_object_type_to_string(oep_object_type_t type) {
+    switch (type) {
+        case OEP_OBJECT_TYPE_DOCUMENT: return "Document";
+        case OEP_OBJECT_TYPE_DIAGRAM: return "Diagram";
+        case OEP_OBJECT_TYPE_COMPONENT: return "Component";
+        case OEP_OBJECT_TYPE_PROCEDURE: return "Procedure";
+        case OEP_OBJECT_TYPE_PROJECT: return "Project";
+        case OEP_OBJECT_TYPE_IMAGE: return "Image";
+    }
+    return "Document";
+}
+
+oep_result_t oep_object_store_get_count(OEP_Runtime runtime, int* out_count) {
+    if (out_count != nullptr) {
+        *out_count = 0;
+    }
+    if (runtime == nullptr) {
+        return make_error_result(OEP_ERROR_INVALID_ARGUMENT, category_for_code(OEP_ERROR_INVALID_ARGUMENT),
+                                  "runtime handle is null");
+    }
+    if (out_count == nullptr) {
+        return make_error_result(OEP_ERROR_INVALID_ARGUMENT, category_for_code(OEP_ERROR_INVALID_ARGUMENT),
+                                  "out_count is null");
+    }
+    try {
+        if (runtime->runtime.state() != oep::runtime::RuntimeState::RepositoryOpen) {
+            return make_error_result(OEP_ERROR_INVALID_STATE, category_for_code(OEP_ERROR_INVALID_STATE),
+                                      "no repository is currently open");
+        }
+        const oep::repository::ListObjectsResult listed = runtime->runtime.object_store()->list_all();
+        if (!listed.success) {
+            return make_error_result(OEP_ERROR_OPERATION_FAILED, category_for_code(OEP_ERROR_OPERATION_FAILED),
+                                      listed.error);
+        }
+        *out_count = static_cast<int>(listed.objects.size());
+        return make_success_result();
+    } catch (const std::exception& ex) {
+        return make_error_result(OEP_ERROR_INTERNAL, category_for_code(OEP_ERROR_INTERNAL), ex.what());
+    } catch (...) {
+        return make_error_result(OEP_ERROR_INTERNAL, category_for_code(OEP_ERROR_INTERNAL), "unknown internal error");
+    }
+}
+
+oep_result_t oep_object_store_get_by_id(OEP_Runtime runtime, const char* object_id, oep_object_info_t* out_object) {
+    if (out_object != nullptr) {
+        zero_object_info(out_object);
+    }
+    if (runtime == nullptr) {
+        return make_error_result(OEP_ERROR_INVALID_ARGUMENT, category_for_code(OEP_ERROR_INVALID_ARGUMENT),
+                                  "runtime handle is null");
+    }
+    if (object_id == nullptr) {
+        return make_error_result(OEP_ERROR_INVALID_ARGUMENT, category_for_code(OEP_ERROR_INVALID_ARGUMENT),
+                                  "object_id is null");
+    }
+    if (out_object == nullptr) {
+        return make_error_result(OEP_ERROR_INVALID_ARGUMENT, category_for_code(OEP_ERROR_INVALID_ARGUMENT),
+                                  "out_object is null");
+    }
+    try {
+        if (runtime->runtime.state() != oep::runtime::RuntimeState::RepositoryOpen) {
+            return make_error_result(OEP_ERROR_INVALID_STATE, category_for_code(OEP_ERROR_INVALID_STATE),
+                                      "no repository is currently open");
+        }
+        const oep::repository::LoadObjectResult loaded = runtime->runtime.object_store()->load(object_id);
+        if (!loaded.success) {
+            return make_error_result(OEP_ERROR_NOT_FOUND, category_for_code(OEP_ERROR_NOT_FOUND), loaded.error);
+        }
+        populate_object_info(loaded.object, out_object);
+        return make_success_result();
+    } catch (const std::exception& ex) {
+        zero_object_info(out_object);
+        return make_error_result(OEP_ERROR_INTERNAL, category_for_code(OEP_ERROR_INTERNAL), ex.what());
+    } catch (...) {
+        zero_object_info(out_object);
+        return make_error_result(OEP_ERROR_INTERNAL, category_for_code(OEP_ERROR_INTERNAL), "unknown internal error");
+    }
+}
+
+oep_result_t oep_object_store_list(OEP_Runtime runtime, oep_object_list_t* out_list) {
+    if (out_list != nullptr) {
+        zero_object_list(out_list);
+    }
+    if (runtime == nullptr) {
+        return make_error_result(OEP_ERROR_INVALID_ARGUMENT, category_for_code(OEP_ERROR_INVALID_ARGUMENT),
+                                  "runtime handle is null");
+    }
+    if (out_list == nullptr) {
+        return make_error_result(OEP_ERROR_INVALID_ARGUMENT, category_for_code(OEP_ERROR_INVALID_ARGUMENT),
+                                  "out_list is null");
+    }
+    try {
+        if (runtime->runtime.state() != oep::runtime::RuntimeState::RepositoryOpen) {
+            return make_error_result(OEP_ERROR_INVALID_STATE, category_for_code(OEP_ERROR_INVALID_STATE),
+                                      "no repository is currently open");
+        }
+        const oep::repository::ListObjectsResult listed = runtime->runtime.object_store()->list_all();
+        if (!listed.success) {
+            return make_error_result(OEP_ERROR_OPERATION_FAILED, category_for_code(OEP_ERROR_OPERATION_FAILED),
+                                      listed.error);
+        }
+
+        std::vector<oep::repository::EngineeringObject> objects = listed.objects;
+        std::sort(objects.begin(), objects.end(),
+                  [](const oep::repository::EngineeringObject& a, const oep::repository::EngineeringObject& b) {
+                      return a.object_id < b.object_id;
+                  });
+
+        const int count = static_cast<int>(objects.size());
+        oep_object_info_t* items = count > 0 ? new oep_object_info_t[static_cast<std::size_t>(count)] : nullptr;
+        for (int i = 0; i < count; ++i) {
+            populate_object_info(objects[static_cast<std::size_t>(i)], &items[i]);
+        }
+
+        out_list->items = items;
+        out_list->count = count;
+        return make_success_result();
+    } catch (const std::exception& ex) {
+        return make_error_result(OEP_ERROR_INTERNAL, category_for_code(OEP_ERROR_INTERNAL), ex.what());
+    } catch (...) {
+        return make_error_result(OEP_ERROR_INTERNAL, category_for_code(OEP_ERROR_INTERNAL), "unknown internal error");
+    }
+}
+
+void oep_object_list_release(oep_object_list_t* list) {
+    if (list == nullptr) {
+        return;
+    }
+    delete[] list->items;
+    list->items = nullptr;
+    list->count = 0;
+}
+
+oep_result_t oep_runtime_get_repository_statistics(OEP_Runtime runtime, oep_repository_statistics_t* out_statistics) {
+    if (out_statistics != nullptr) {
+        zero_statistics(out_statistics);
+    }
+    if (runtime == nullptr) {
+        return make_error_result(OEP_ERROR_INVALID_ARGUMENT, category_for_code(OEP_ERROR_INVALID_ARGUMENT),
+                                  "runtime handle is null");
+    }
+    if (out_statistics == nullptr) {
+        return make_error_result(OEP_ERROR_INVALID_ARGUMENT, category_for_code(OEP_ERROR_INVALID_ARGUMENT),
+                                  "out_statistics is null");
+    }
+    try {
+        if (runtime->runtime.state() != oep::runtime::RuntimeState::RepositoryOpen) {
+            return make_error_result(OEP_ERROR_INVALID_STATE, category_for_code(OEP_ERROR_INVALID_STATE),
+                                      "no repository is currently open");
+        }
+
+        const oep::runtime::RuntimeMetadataResult metadata_result = runtime->runtime.current_metadata();
+        if (!metadata_result.success) {
+            return make_error_result(OEP_ERROR_OPERATION_FAILED, category_for_code(OEP_ERROR_OPERATION_FAILED),
+                                      metadata_result.error);
+        }
+
+        const oep::repository::ListObjectsResult objects_result = runtime->runtime.object_store()->list_all();
+        if (!objects_result.success) {
+            return make_error_result(OEP_ERROR_OPERATION_FAILED, category_for_code(OEP_ERROR_OPERATION_FAILED),
+                                      objects_result.error);
+        }
+
+        const oep::repository::ListRelationshipsResult relationships_result =
+            runtime->runtime.relationship_store()->list_all();
+        if (!relationships_result.success) {
+            return make_error_result(OEP_ERROR_OPERATION_FAILED, category_for_code(OEP_ERROR_OPERATION_FAILED),
+                                      relationships_result.error);
+        }
+
+        const oep::runtime::RuntimePackageSetResult package_result = runtime->runtime.current_package_set();
+        if (!package_result.success) {
+            return make_error_result(OEP_ERROR_OPERATION_FAILED, category_for_code(OEP_ERROR_OPERATION_FAILED),
+                                      package_result.error);
+        }
+
+        oep::api::detail::copy_truncated(metadata_result.metadata.repository_id, out_statistics->repository_id,
+                                          sizeof(out_statistics->repository_id));
+        oep::api::detail::copy_truncated(metadata_result.metadata.repository_name,
+                                          out_statistics->repository_name, sizeof(out_statistics->repository_name));
+        oep::api::detail::copy_truncated(metadata_result.metadata.repository_version,
+                                          out_statistics->repository_version,
+                                          sizeof(out_statistics->repository_version));
+
+        out_statistics->total_object_count = static_cast<int>(objects_result.objects.size());
+        for (const oep::repository::EngineeringObject& object : objects_result.objects) {
+            const int type_index = static_cast<int>(oep::api::detail::to_capi_object_type(object.object_type));
+            ++out_statistics->object_count_by_type[type_index];
+        }
+        out_statistics->relationship_count = static_cast<int>(relationships_result.relationships.size());
+        out_statistics->package_count = static_cast<int>(package_result.packages.size());
+
+        return make_success_result();
+    } catch (const std::exception& ex) {
+        zero_statistics(out_statistics);
+        return make_error_result(OEP_ERROR_INTERNAL, category_for_code(OEP_ERROR_INTERNAL), ex.what());
+    } catch (...) {
+        zero_statistics(out_statistics);
         return make_error_result(OEP_ERROR_INTERNAL, category_for_code(OEP_ERROR_INTERNAL), "unknown internal error");
     }
 }

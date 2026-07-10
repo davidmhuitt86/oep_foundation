@@ -3,7 +3,9 @@
 
 /*
  * OEP Foundation Public C API
- * Per OEP-SPEC-021-PUBLIC_C_API and OEP-SPEC-022-FOUNDATION_BRIDGE_SUPPORT.
+ * Per OEP-SPEC-021-PUBLIC_C_API, OEP-SPEC-022-FOUNDATION_BRIDGE_SUPPORT,
+ * and Work Package 012 (Engineering Object Enumeration, Repository
+ * Statistics).
  *
  * This is the only supported native interface into Foundation. It is a
  * pure C ABI: no C++ classes, no STL types, and no exceptions ever cross
@@ -25,7 +27,7 @@ extern "C" {
 
 /* The Public C API's own version. Incremented whenever a function or
    structure is added, changed, or removed. */
-#define OEP_API_VERSION 1
+#define OEP_API_VERSION 2
 
 /* The ABI version. Incremented only when a change would break binary
    compatibility with a previously compiled caller (e.g. a struct
@@ -187,6 +189,128 @@ typedef struct oep_repository_status_t {
    otherwise, in which case `*out_status` is zero-initialized.
    `out_status` must not be NULL. */
 oep_result_t oep_runtime_get_repository_status(OEP_Runtime runtime, oep_repository_status_t* out_status);
+
+/* ------------------------------------------------------------------ */
+/* Engineering Object Enumeration (Work Package 012, TASK-000023)      */
+/* ------------------------------------------------------------------ */
+
+typedef enum oep_object_type_t {
+    OEP_OBJECT_TYPE_DOCUMENT = 0,
+    OEP_OBJECT_TYPE_DIAGRAM = 1,
+    OEP_OBJECT_TYPE_COMPONENT = 2,
+    OEP_OBJECT_TYPE_PROCEDURE = 3,
+    OEP_OBJECT_TYPE_PROJECT = 4,
+    OEP_OBJECT_TYPE_IMAGE = 5,
+} oep_object_type_t;
+
+/* The number of distinct oep_object_type_t values. Also the size of
+   oep_repository_statistics_t::object_count_by_type. */
+#define OEP_OBJECT_TYPE_COUNT 6
+
+/* Returns a static, human-readable name for `type` (e.g. "Component").
+   Never freed by the caller. Deterministic. */
+const char* oep_object_type_to_string(oep_object_type_t type);
+
+#define OEP_MAX_OBJECT_ID 64
+#define OEP_MAX_OBJECT_NAME 256
+#define OEP_MAX_OBJECT_AUTHOR 128
+#define OEP_MAX_OBJECT_VERSION 32
+#define OEP_MAX_OBJECT_DESCRIPTION 1024
+#define OEP_MAX_OBJECT_TAGS 16
+#define OEP_MAX_TAG_LENGTH 64
+
+/* A deterministic, fixed-layout snapshot of one Engineering Object's
+   metadata — no pointers, no STL types, safe to copy by value or
+   convert directly into a language-native model. String fields are
+   truncated (never overflowed) if the underlying value is longer than
+   the field's capacity; `tag_count` is capped at OEP_MAX_OBJECT_TAGS
+   (additional tags beyond the cap are simply not included). */
+typedef struct oep_object_info_t {
+    char object_id[OEP_MAX_OBJECT_ID];
+    oep_object_type_t object_type;
+    char name[OEP_MAX_OBJECT_NAME];
+    char author[OEP_MAX_OBJECT_AUTHOR];
+    char version[OEP_MAX_OBJECT_VERSION];
+    char description[OEP_MAX_OBJECT_DESCRIPTION];
+    int tag_count;
+    char tags[OEP_MAX_OBJECT_TAGS][OEP_MAX_TAG_LENGTH];
+} oep_object_info_t;
+
+/* Returns the number of Engineering Objects in the currently open
+   repository. Only valid from RepositoryOpen; fails with
+   OEP_ERROR_INVALID_STATE otherwise, in which case `*out_count` is 0.
+   `out_count` must not be NULL. */
+oep_result_t oep_object_store_get_count(OEP_Runtime runtime, int* out_count);
+
+/* Populates `out_object` with the Engineering Object identified by
+   `object_id`. Only valid from RepositoryOpen; fails with
+   OEP_ERROR_INVALID_STATE if no repository is open, or
+   OEP_ERROR_NOT_FOUND if no object with that ID exists, in which case
+   `*out_object` is zero-initialized. `object_id` and `out_object` must
+   not be NULL. */
+oep_result_t oep_object_store_get_by_id(OEP_Runtime runtime, const char* object_id, oep_object_info_t* out_object);
+
+/* An enumerated collection of Engineering Objects. `items` is a
+   Foundation-owned heap array of `count` elements, sorted
+   deterministically by object_id (ascending, byte-wise) — the same
+   order every time for unchanged repository contents. A list that was
+   never successfully populated (e.g. the owning oep_result_t reported
+   failure) has `items == NULL` and `count == 0`, and is always safe to
+   pass to oep_object_list_release. */
+typedef struct oep_object_list_t {
+    oep_object_info_t* items;
+    int count;
+} oep_object_list_t;
+
+/* Enumerates every Engineering Object in the currently open repository
+   into `out_list`, sorted deterministically by object_id. Only valid
+   from RepositoryOpen; fails with OEP_ERROR_INVALID_STATE otherwise,
+   in which case `*out_list` is zero-initialized (items = NULL,
+   count = 0). `out_list` must not be NULL.
+
+   Ownership: on success, the caller owns `out_list->items` and must
+   release it with exactly one call to oep_object_list_release. Do not
+   call `free`/`delete` on `items` directly — it was allocated by
+   Foundation and must be released through the matching Foundation
+   function. */
+oep_result_t oep_object_store_list(OEP_Runtime runtime, oep_object_list_t* out_list);
+
+/* Releases the heap array owned by `list` (if any) and zeroes
+   `list->items`/`list->count`. Safe to call on a zero-initialized or
+   already-released list (a no-op). `list` itself may be NULL (a
+   no-op). */
+void oep_object_list_release(oep_object_list_t* list);
+
+/* ------------------------------------------------------------------ */
+/* Repository Statistics (Work Package 012, TASK-000024)               */
+/* ------------------------------------------------------------------ */
+
+/* A deterministic, fixed-layout snapshot of repository-wide counts,
+   computed by Foundation so Studio (or any other API consumer) never
+   has to enumerate and count objects/relationships/packages itself.
+   No pointers; safe to copy by value or convert directly into a
+   language-native model. */
+typedef struct oep_repository_statistics_t {
+    char repository_id[64];
+    char repository_name[256];
+    char repository_version[32];
+    int total_object_count;
+    /* Indexed by oep_object_type_t; object_count_by_type[OEP_OBJECT_TYPE_COMPONENT]
+       is the number of Component objects, and so on. */
+    int object_count_by_type[OEP_OBJECT_TYPE_COUNT];
+    int relationship_count;
+    /* Every discovered package, regardless of Loaded/Invalid/Disabled
+       state — distinct from oep_repository_status_t::loaded_package_count,
+       which counts only Loaded packages. */
+    int package_count;
+} oep_repository_statistics_t;
+
+/* Populates `out_statistics` from the currently open repository. Only
+   valid from RepositoryOpen; fails with OEP_ERROR_INVALID_STATE
+   otherwise, in which case `*out_statistics` is zero-initialized.
+   `out_statistics` must not be NULL. */
+oep_result_t oep_runtime_get_repository_statistics(OEP_Runtime runtime,
+                                                    oep_repository_statistics_t* out_statistics);
 
 #ifdef __cplusplus
 }
