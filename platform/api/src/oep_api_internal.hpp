@@ -42,4 +42,21 @@ oep_object_type_t to_capi_object_type(oep::repository::ObjectType type);
 // its fixed capacity, per oep_object_info_t's documented contract.
 void populate_object_info(const oep::repository::EngineeringObject& object, oep_object_info_t* out_object);
 
+// Converts an internal RelationshipType to its C-ABI equivalent. Both
+// enumerations are kept in the same declared order deliberately.
+oep_relationship_type_t to_capi_relationship_type(oep::repository::RelationshipType type);
+
+// Fills `out_relationship` from `relationship`, truncating any field
+// that exceeds its fixed capacity.
+void populate_relationship_info(const oep::repository::Relationship& relationship,
+                                 oep_relationship_info_t* out_relationship);
+
+// Converts an internal MatchLocation to its C-ABI equivalent.
+oep_match_location_t to_capi_match_location(oep::search::MatchLocation location);
+
+void populate_object_search_result(const oep::search::ObjectSearchResult& result,
+                                    oep_object_search_result_t* out_result);
+void populate_relationship_search_result(const oep::search::RelationshipSearchResult& result,
+                                          oep_relationship_search_result_t* out_result);
+
 } // namespace oep::api::detail

@@ -53,6 +53,36 @@ void zero_statistics(oep_repository_statistics_t* out_statistics) {
     out_statistics->package_count = 0;
 }
 
+void zero_relationship_info(oep_relationship_info_t* out_relationship) {
+    out_relationship->relationship_id[0] = '\0';
+    out_relationship->source_object_id[0] = '\0';
+    out_relationship->target_object_id[0] = '\0';
+    out_relationship->relationship_type = OEP_RELATIONSHIP_TYPE_REFERENCES;
+    out_relationship->author[0] = '\0';
+    out_relationship->description[0] = '\0';
+    out_relationship->created_utc[0] = '\0';
+}
+
+void zero_relationship_list(oep_relationship_list_t* out_list) {
+    out_list->items = nullptr;
+    out_list->count = 0;
+}
+
+void zero_object_search_result_list(oep_object_search_result_list_t* out_list) {
+    out_list->items = nullptr;
+    out_list->count = 0;
+}
+
+void zero_relationship_search_result_list(oep_relationship_search_result_list_t* out_list) {
+    out_list->items = nullptr;
+    out_list->count = 0;
+}
+
+void zero_repository_search_result(oep_repository_search_result_t* out_result) {
+    zero_object_search_result_list(&out_result->objects);
+    zero_relationship_search_result_list(&out_result->relationships);
+}
+
 } // namespace
 
 namespace oep::api::detail {
@@ -128,12 +158,119 @@ void populate_object_info(const oep::repository::EngineeringObject& object, oep_
     }
 }
 
+oep_relationship_type_t to_capi_relationship_type(oep::repository::RelationshipType type) {
+    switch (type) {
+        case oep::repository::RelationshipType::References: return OEP_RELATIONSHIP_TYPE_REFERENCES;
+        case oep::repository::RelationshipType::Contains: return OEP_RELATIONSHIP_TYPE_CONTAINS;
+        case oep::repository::RelationshipType::DependsOn: return OEP_RELATIONSHIP_TYPE_DEPENDS_ON;
+        case oep::repository::RelationshipType::ConnectedTo: return OEP_RELATIONSHIP_TYPE_CONNECTED_TO;
+        case oep::repository::RelationshipType::Documents: return OEP_RELATIONSHIP_TYPE_DOCUMENTS;
+        case oep::repository::RelationshipType::Implements: return OEP_RELATIONSHIP_TYPE_IMPLEMENTS;
+    }
+    return OEP_RELATIONSHIP_TYPE_REFERENCES;
+}
+
+void populate_relationship_info(const oep::repository::Relationship& relationship,
+                                 oep_relationship_info_t* out_relationship) {
+    copy_truncated(relationship.relationship_id, out_relationship->relationship_id,
+                   sizeof(out_relationship->relationship_id));
+    copy_truncated(relationship.source_object_id, out_relationship->source_object_id,
+                   sizeof(out_relationship->source_object_id));
+    copy_truncated(relationship.target_object_id, out_relationship->target_object_id,
+                   sizeof(out_relationship->target_object_id));
+    out_relationship->relationship_type = to_capi_relationship_type(relationship.relationship_type);
+    copy_truncated(relationship.author, out_relationship->author, sizeof(out_relationship->author));
+    copy_truncated(relationship.description, out_relationship->description, sizeof(out_relationship->description));
+    copy_truncated(relationship.created_utc, out_relationship->created_utc, sizeof(out_relationship->created_utc));
+}
+
+oep_match_location_t to_capi_match_location(oep::search::MatchLocation location) {
+    switch (location) {
+        case oep::search::MatchLocation::Name: return OEP_MATCH_LOCATION_NAME;
+        case oep::search::MatchLocation::Description: return OEP_MATCH_LOCATION_DESCRIPTION;
+        case oep::search::MatchLocation::Author: return OEP_MATCH_LOCATION_AUTHOR;
+        case oep::search::MatchLocation::Tags: return OEP_MATCH_LOCATION_TAGS;
+        case oep::search::MatchLocation::ObjectType: return OEP_MATCH_LOCATION_OBJECT_TYPE;
+        case oep::search::MatchLocation::RelationshipType: return OEP_MATCH_LOCATION_RELATIONSHIP_TYPE;
+    }
+    return OEP_MATCH_LOCATION_NAME;
+}
+
+void populate_object_search_result(const oep::search::ObjectSearchResult& result,
+                                    oep_object_search_result_t* out_result) {
+    copy_truncated(result.object_id, out_result->object_id, sizeof(out_result->object_id));
+    out_result->object_type = to_capi_object_type(result.object_type);
+    copy_truncated(result.display_name, out_result->display_name, sizeof(out_result->display_name));
+    out_result->match_location = to_capi_match_location(result.match_location);
+    out_result->match_score = result.match_score;
+}
+
+void populate_relationship_search_result(const oep::search::RelationshipSearchResult& result,
+                                          oep_relationship_search_result_t* out_result) {
+    copy_truncated(result.relationship_id, out_result->relationship_id, sizeof(out_result->relationship_id));
+    copy_truncated(result.source_object_id, out_result->source_object_id, sizeof(out_result->source_object_id));
+    copy_truncated(result.target_object_id, out_result->target_object_id, sizeof(out_result->target_object_id));
+    out_result->relationship_type = to_capi_relationship_type(result.relationship_type);
+    out_result->match_location = to_capi_match_location(result.match_location);
+    out_result->match_score = result.match_score;
+}
+
 } // namespace oep::api::detail
 
 using oep::api::detail::category_for_code;
 using oep::api::detail::make_error_result;
 using oep::api::detail::make_success_result;
 using oep::api::detail::populate_object_info;
+using oep::api::detail::populate_object_search_result;
+using oep::api::detail::populate_relationship_info;
+using oep::api::detail::populate_relationship_search_result;
+
+namespace {
+
+oep_result_t validate_search_arguments(OEP_Runtime runtime, const char* query) {
+    if (runtime == nullptr) {
+        return make_error_result(OEP_ERROR_INVALID_ARGUMENT, category_for_code(OEP_ERROR_INVALID_ARGUMENT),
+                                  "runtime handle is null");
+    }
+    if (query == nullptr) {
+        return make_error_result(OEP_ERROR_INVALID_ARGUMENT, category_for_code(OEP_ERROR_INVALID_ARGUMENT),
+                                  "query is null");
+    }
+    if (runtime->runtime.state() != oep::runtime::RuntimeState::RepositoryOpen) {
+        return make_error_result(OEP_ERROR_INVALID_STATE, category_for_code(OEP_ERROR_INVALID_STATE),
+                                  "no repository is currently open");
+    }
+    return make_success_result();
+}
+
+oep_object_search_result_list_t build_object_search_result_list(const oep::search::SearchObjectsResult& searched) {
+    const int count = static_cast<int>(searched.results.size());
+    oep_object_search_result_t* items =
+        count > 0 ? new oep_object_search_result_t[static_cast<std::size_t>(count)] : nullptr;
+    for (int i = 0; i < count; ++i) {
+        populate_object_search_result(searched.results[static_cast<std::size_t>(i)], &items[i]);
+    }
+    oep_object_search_result_list_t list;
+    list.items = items;
+    list.count = count;
+    return list;
+}
+
+oep_relationship_search_result_list_t build_relationship_search_result_list(
+    const oep::search::SearchRelationshipsResult& searched) {
+    const int count = static_cast<int>(searched.results.size());
+    oep_relationship_search_result_t* items =
+        count > 0 ? new oep_relationship_search_result_t[static_cast<std::size_t>(count)] : nullptr;
+    for (int i = 0; i < count; ++i) {
+        populate_relationship_search_result(searched.results[static_cast<std::size_t>(i)], &items[i]);
+    }
+    oep_relationship_search_result_list_t list;
+    list.items = items;
+    list.count = count;
+    return list;
+}
+
+} // namespace
 
 extern "C" {
 
@@ -573,6 +710,278 @@ oep_result_t oep_runtime_get_repository_statistics(OEP_Runtime runtime, oep_repo
         zero_statistics(out_statistics);
         return make_error_result(OEP_ERROR_INTERNAL, category_for_code(OEP_ERROR_INTERNAL), "unknown internal error");
     }
+}
+
+const char* oep_relationship_type_to_string(oep_relationship_type_t type) {
+    switch (type) {
+        case OEP_RELATIONSHIP_TYPE_REFERENCES: return "References";
+        case OEP_RELATIONSHIP_TYPE_CONTAINS: return "Contains";
+        case OEP_RELATIONSHIP_TYPE_DEPENDS_ON: return "DependsOn";
+        case OEP_RELATIONSHIP_TYPE_CONNECTED_TO: return "ConnectedTo";
+        case OEP_RELATIONSHIP_TYPE_DOCUMENTS: return "Documents";
+        case OEP_RELATIONSHIP_TYPE_IMPLEMENTS: return "Implements";
+    }
+    return "References";
+}
+
+oep_result_t oep_relationship_store_get_count(OEP_Runtime runtime, int* out_count) {
+    if (out_count != nullptr) {
+        *out_count = 0;
+    }
+    if (runtime == nullptr) {
+        return make_error_result(OEP_ERROR_INVALID_ARGUMENT, category_for_code(OEP_ERROR_INVALID_ARGUMENT),
+                                  "runtime handle is null");
+    }
+    if (out_count == nullptr) {
+        return make_error_result(OEP_ERROR_INVALID_ARGUMENT, category_for_code(OEP_ERROR_INVALID_ARGUMENT),
+                                  "out_count is null");
+    }
+    try {
+        if (runtime->runtime.state() != oep::runtime::RuntimeState::RepositoryOpen) {
+            return make_error_result(OEP_ERROR_INVALID_STATE, category_for_code(OEP_ERROR_INVALID_STATE),
+                                      "no repository is currently open");
+        }
+        const oep::repository::ListRelationshipsResult listed = runtime->runtime.relationship_store()->list_all();
+        if (!listed.success) {
+            return make_error_result(OEP_ERROR_OPERATION_FAILED, category_for_code(OEP_ERROR_OPERATION_FAILED),
+                                      listed.error);
+        }
+        *out_count = static_cast<int>(listed.relationships.size());
+        return make_success_result();
+    } catch (const std::exception& ex) {
+        return make_error_result(OEP_ERROR_INTERNAL, category_for_code(OEP_ERROR_INTERNAL), ex.what());
+    } catch (...) {
+        return make_error_result(OEP_ERROR_INTERNAL, category_for_code(OEP_ERROR_INTERNAL), "unknown internal error");
+    }
+}
+
+oep_result_t oep_relationship_store_get_by_id(OEP_Runtime runtime, const char* relationship_id,
+                                               oep_relationship_info_t* out_relationship) {
+    if (out_relationship != nullptr) {
+        zero_relationship_info(out_relationship);
+    }
+    if (runtime == nullptr) {
+        return make_error_result(OEP_ERROR_INVALID_ARGUMENT, category_for_code(OEP_ERROR_INVALID_ARGUMENT),
+                                  "runtime handle is null");
+    }
+    if (relationship_id == nullptr) {
+        return make_error_result(OEP_ERROR_INVALID_ARGUMENT, category_for_code(OEP_ERROR_INVALID_ARGUMENT),
+                                  "relationship_id is null");
+    }
+    if (out_relationship == nullptr) {
+        return make_error_result(OEP_ERROR_INVALID_ARGUMENT, category_for_code(OEP_ERROR_INVALID_ARGUMENT),
+                                  "out_relationship is null");
+    }
+    try {
+        if (runtime->runtime.state() != oep::runtime::RuntimeState::RepositoryOpen) {
+            return make_error_result(OEP_ERROR_INVALID_STATE, category_for_code(OEP_ERROR_INVALID_STATE),
+                                      "no repository is currently open");
+        }
+        const oep::repository::LoadRelationshipResult loaded =
+            runtime->runtime.relationship_store()->load(relationship_id);
+        if (!loaded.success) {
+            return make_error_result(OEP_ERROR_NOT_FOUND, category_for_code(OEP_ERROR_NOT_FOUND), loaded.error);
+        }
+        populate_relationship_info(loaded.relationship, out_relationship);
+        return make_success_result();
+    } catch (const std::exception& ex) {
+        zero_relationship_info(out_relationship);
+        return make_error_result(OEP_ERROR_INTERNAL, category_for_code(OEP_ERROR_INTERNAL), ex.what());
+    } catch (...) {
+        zero_relationship_info(out_relationship);
+        return make_error_result(OEP_ERROR_INTERNAL, category_for_code(OEP_ERROR_INTERNAL), "unknown internal error");
+    }
+}
+
+oep_result_t oep_relationship_store_list(OEP_Runtime runtime, oep_relationship_list_t* out_list) {
+    if (out_list != nullptr) {
+        zero_relationship_list(out_list);
+    }
+    if (runtime == nullptr) {
+        return make_error_result(OEP_ERROR_INVALID_ARGUMENT, category_for_code(OEP_ERROR_INVALID_ARGUMENT),
+                                  "runtime handle is null");
+    }
+    if (out_list == nullptr) {
+        return make_error_result(OEP_ERROR_INVALID_ARGUMENT, category_for_code(OEP_ERROR_INVALID_ARGUMENT),
+                                  "out_list is null");
+    }
+    try {
+        if (runtime->runtime.state() != oep::runtime::RuntimeState::RepositoryOpen) {
+            return make_error_result(OEP_ERROR_INVALID_STATE, category_for_code(OEP_ERROR_INVALID_STATE),
+                                      "no repository is currently open");
+        }
+        const oep::repository::ListRelationshipsResult listed = runtime->runtime.relationship_store()->list_all();
+        if (!listed.success) {
+            return make_error_result(OEP_ERROR_OPERATION_FAILED, category_for_code(OEP_ERROR_OPERATION_FAILED),
+                                      listed.error);
+        }
+
+        std::vector<oep::repository::Relationship> relationships = listed.relationships;
+        std::sort(relationships.begin(), relationships.end(),
+                  [](const oep::repository::Relationship& a, const oep::repository::Relationship& b) {
+                      return a.relationship_id < b.relationship_id;
+                  });
+
+        const int count = static_cast<int>(relationships.size());
+        oep_relationship_info_t* items =
+            count > 0 ? new oep_relationship_info_t[static_cast<std::size_t>(count)] : nullptr;
+        for (int i = 0; i < count; ++i) {
+            populate_relationship_info(relationships[static_cast<std::size_t>(i)], &items[i]);
+        }
+
+        out_list->items = items;
+        out_list->count = count;
+        return make_success_result();
+    } catch (const std::exception& ex) {
+        return make_error_result(OEP_ERROR_INTERNAL, category_for_code(OEP_ERROR_INTERNAL), ex.what());
+    } catch (...) {
+        return make_error_result(OEP_ERROR_INTERNAL, category_for_code(OEP_ERROR_INTERNAL), "unknown internal error");
+    }
+}
+
+void oep_relationship_list_release(oep_relationship_list_t* list) {
+    if (list == nullptr) {
+        return;
+    }
+    delete[] list->items;
+    list->items = nullptr;
+    list->count = 0;
+}
+
+const char* oep_match_location_to_string(oep_match_location_t location) {
+    switch (location) {
+        case OEP_MATCH_LOCATION_NAME: return "Name";
+        case OEP_MATCH_LOCATION_DESCRIPTION: return "Description";
+        case OEP_MATCH_LOCATION_AUTHOR: return "Author";
+        case OEP_MATCH_LOCATION_TAGS: return "Tags";
+        case OEP_MATCH_LOCATION_OBJECT_TYPE: return "ObjectType";
+        case OEP_MATCH_LOCATION_RELATIONSHIP_TYPE: return "RelationshipType";
+    }
+    return "Name";
+}
+
+oep_result_t oep_search_repository(OEP_Runtime runtime, const char* query,
+                                    oep_repository_search_result_t* out_result) {
+    if (out_result != nullptr) {
+        zero_repository_search_result(out_result);
+    }
+    const oep_result_t argument_check = validate_search_arguments(runtime, query);
+    if (!argument_check.success) {
+        return argument_check;
+    }
+    if (out_result == nullptr) {
+        return make_error_result(OEP_ERROR_INVALID_ARGUMENT, category_for_code(OEP_ERROR_INVALID_ARGUMENT),
+                                  "out_result is null");
+    }
+    try {
+        const oep::search::SearchObjectsResult objects_searched = runtime->runtime.search_engine()->search_objects(query);
+        if (!objects_searched.success) {
+            return make_error_result(OEP_ERROR_INVALID_ARGUMENT, category_for_code(OEP_ERROR_INVALID_ARGUMENT),
+                                      objects_searched.error);
+        }
+        const oep::search::SearchRelationshipsResult relationships_searched =
+            runtime->runtime.search_engine()->search_relationships(query);
+        if (!relationships_searched.success) {
+            return make_error_result(OEP_ERROR_INVALID_ARGUMENT, category_for_code(OEP_ERROR_INVALID_ARGUMENT),
+                                      relationships_searched.error);
+        }
+
+        out_result->objects = build_object_search_result_list(objects_searched);
+        out_result->relationships = build_relationship_search_result_list(relationships_searched);
+        return make_success_result();
+    } catch (const std::exception& ex) {
+        zero_repository_search_result(out_result);
+        return make_error_result(OEP_ERROR_INTERNAL, category_for_code(OEP_ERROR_INTERNAL), ex.what());
+    } catch (...) {
+        zero_repository_search_result(out_result);
+        return make_error_result(OEP_ERROR_INTERNAL, category_for_code(OEP_ERROR_INTERNAL), "unknown internal error");
+    }
+}
+
+void oep_repository_search_result_release(oep_repository_search_result_t* result) {
+    if (result == nullptr) {
+        return;
+    }
+    delete[] result->objects.items;
+    result->objects.items = nullptr;
+    result->objects.count = 0;
+    delete[] result->relationships.items;
+    result->relationships.items = nullptr;
+    result->relationships.count = 0;
+}
+
+oep_result_t oep_search_objects(OEP_Runtime runtime, const char* query, oep_object_search_result_list_t* out_list) {
+    if (out_list != nullptr) {
+        zero_object_search_result_list(out_list);
+    }
+    const oep_result_t argument_check = validate_search_arguments(runtime, query);
+    if (!argument_check.success) {
+        return argument_check;
+    }
+    if (out_list == nullptr) {
+        return make_error_result(OEP_ERROR_INVALID_ARGUMENT, category_for_code(OEP_ERROR_INVALID_ARGUMENT),
+                                  "out_list is null");
+    }
+    try {
+        const oep::search::SearchObjectsResult searched = runtime->runtime.search_engine()->search_objects(query);
+        if (!searched.success) {
+            return make_error_result(OEP_ERROR_INVALID_ARGUMENT, category_for_code(OEP_ERROR_INVALID_ARGUMENT),
+                                      searched.error);
+        }
+        *out_list = build_object_search_result_list(searched);
+        return make_success_result();
+    } catch (const std::exception& ex) {
+        return make_error_result(OEP_ERROR_INTERNAL, category_for_code(OEP_ERROR_INTERNAL), ex.what());
+    } catch (...) {
+        return make_error_result(OEP_ERROR_INTERNAL, category_for_code(OEP_ERROR_INTERNAL), "unknown internal error");
+    }
+}
+
+void oep_object_search_result_list_release(oep_object_search_result_list_t* list) {
+    if (list == nullptr) {
+        return;
+    }
+    delete[] list->items;
+    list->items = nullptr;
+    list->count = 0;
+}
+
+oep_result_t oep_search_relationships(OEP_Runtime runtime, const char* query,
+                                      oep_relationship_search_result_list_t* out_list) {
+    if (out_list != nullptr) {
+        zero_relationship_search_result_list(out_list);
+    }
+    const oep_result_t argument_check = validate_search_arguments(runtime, query);
+    if (!argument_check.success) {
+        return argument_check;
+    }
+    if (out_list == nullptr) {
+        return make_error_result(OEP_ERROR_INVALID_ARGUMENT, category_for_code(OEP_ERROR_INVALID_ARGUMENT),
+                                  "out_list is null");
+    }
+    try {
+        const oep::search::SearchRelationshipsResult searched =
+            runtime->runtime.search_engine()->search_relationships(query);
+        if (!searched.success) {
+            return make_error_result(OEP_ERROR_INVALID_ARGUMENT, category_for_code(OEP_ERROR_INVALID_ARGUMENT),
+                                      searched.error);
+        }
+        *out_list = build_relationship_search_result_list(searched);
+        return make_success_result();
+    } catch (const std::exception& ex) {
+        return make_error_result(OEP_ERROR_INTERNAL, category_for_code(OEP_ERROR_INTERNAL), ex.what());
+    } catch (...) {
+        return make_error_result(OEP_ERROR_INTERNAL, category_for_code(OEP_ERROR_INTERNAL), "unknown internal error");
+    }
+}
+
+void oep_relationship_search_result_list_release(oep_relationship_search_result_list_t* list) {
+    if (list == nullptr) {
+        return;
+    }
+    delete[] list->items;
+    list->items = nullptr;
+    list->count = 0;
 }
 
 } // extern "C"

@@ -4,8 +4,9 @@
 /*
  * OEP Foundation Public C API
  * Per OEP-SPEC-021-PUBLIC_C_API, OEP-SPEC-022-FOUNDATION_BRIDGE_SUPPORT,
- * and Work Package 012 (Engineering Object Enumeration, Repository
- * Statistics).
+ * Work Package 012 (Engineering Object Enumeration, Repository
+ * Statistics), and Work Package 013 (Engineering Relationship
+ * Enumeration, Repository Search).
  *
  * This is the only supported native interface into Foundation. It is a
  * pure C ABI: no C++ classes, no STL types, and no exceptions ever cross
@@ -27,7 +28,7 @@ extern "C" {
 
 /* The Public C API's own version. Incremented whenever a function or
    structure is added, changed, or removed. */
-#define OEP_API_VERSION 2
+#define OEP_API_VERSION 3
 
 /* The ABI version. Incremented only when a change would break binary
    compatibility with a previously compiled caller (e.g. a struct
@@ -311,6 +312,191 @@ typedef struct oep_repository_statistics_t {
    `out_statistics` must not be NULL. */
 oep_result_t oep_runtime_get_repository_statistics(OEP_Runtime runtime,
                                                     oep_repository_statistics_t* out_statistics);
+
+/* ------------------------------------------------------------------ */
+/* Engineering Relationship Enumeration (Work Package 013, TASK-000025)*/
+/* ------------------------------------------------------------------ */
+
+typedef enum oep_relationship_type_t {
+    OEP_RELATIONSHIP_TYPE_REFERENCES = 0,
+    OEP_RELATIONSHIP_TYPE_CONTAINS = 1,
+    OEP_RELATIONSHIP_TYPE_DEPENDS_ON = 2,
+    OEP_RELATIONSHIP_TYPE_CONNECTED_TO = 3,
+    OEP_RELATIONSHIP_TYPE_DOCUMENTS = 4,
+    OEP_RELATIONSHIP_TYPE_IMPLEMENTS = 5,
+} oep_relationship_type_t;
+
+/* Returns a static, human-readable name for `type` (e.g. "Documents").
+   Never freed by the caller. Deterministic. */
+const char* oep_relationship_type_to_string(oep_relationship_type_t type);
+
+#define OEP_MAX_RELATIONSHIP_ID 64
+#define OEP_MAX_TIMESTAMP 32
+
+/* A deterministic, fixed-layout snapshot of one Relationship's
+   metadata — no pointers, no STL types, safe to copy by value or
+   convert directly into a language-native model. String fields are
+   truncated (never overflowed) if the underlying value is longer than
+   the field's capacity. */
+typedef struct oep_relationship_info_t {
+    char relationship_id[OEP_MAX_RELATIONSHIP_ID];
+    char source_object_id[OEP_MAX_OBJECT_ID];
+    char target_object_id[OEP_MAX_OBJECT_ID];
+    oep_relationship_type_t relationship_type;
+    char author[OEP_MAX_OBJECT_AUTHOR];
+    char description[OEP_MAX_OBJECT_DESCRIPTION];
+    char created_utc[OEP_MAX_TIMESTAMP];
+} oep_relationship_info_t;
+
+/* Returns the number of Relationships in the currently open
+   repository. Only valid from RepositoryOpen; fails with
+   OEP_ERROR_INVALID_STATE otherwise, in which case `*out_count` is 0.
+   `out_count` must not be NULL. */
+oep_result_t oep_relationship_store_get_count(OEP_Runtime runtime, int* out_count);
+
+/* Populates `out_relationship` with the Relationship identified by
+   `relationship_id`. Only valid from RepositoryOpen; fails with
+   OEP_ERROR_INVALID_STATE if no repository is open, or
+   OEP_ERROR_NOT_FOUND if no relationship with that ID exists, in
+   which case `*out_relationship` is zero-initialized.
+   `relationship_id` and `out_relationship` must not be NULL. */
+oep_result_t oep_relationship_store_get_by_id(OEP_Runtime runtime, const char* relationship_id,
+                                               oep_relationship_info_t* out_relationship);
+
+/* An enumerated collection of Relationships. `items` is a
+   Foundation-owned heap array of `count` elements, sorted
+   deterministically by relationship_id (ascending, byte-wise) — the
+   same order every time for unchanged repository contents. A list
+   that was never successfully populated has `items == NULL` and
+   `count == 0`, and is always safe to pass to
+   oep_relationship_list_release. Follows the same ownership model as
+   oep_object_list_t (Work Package 012, TASK-000023). */
+typedef struct oep_relationship_list_t {
+    oep_relationship_info_t* items;
+    int count;
+} oep_relationship_list_t;
+
+/* Enumerates every Relationship in the currently open repository into
+   `out_list`, sorted deterministically by relationship_id. Only valid
+   from RepositoryOpen; fails with OEP_ERROR_INVALID_STATE otherwise,
+   in which case `*out_list` is zero-initialized. `out_list` must not
+   be NULL.
+
+   Ownership: on success, the caller owns `out_list->items` and must
+   release it with exactly one call to oep_relationship_list_release.
+   Do not call `free`/`delete` on `items` directly. */
+oep_result_t oep_relationship_store_list(OEP_Runtime runtime, oep_relationship_list_t* out_list);
+
+/* Releases the heap array owned by `list` (if any) and zeroes
+   `list->items`/`list->count`. Safe to call on a zero-initialized or
+   already-released list (a no-op). `list` itself may be NULL (a
+   no-op). */
+void oep_relationship_list_release(oep_relationship_list_t* list);
+
+/* ------------------------------------------------------------------ */
+/* Repository Search (Work Package 013, TASK-000026)                   */
+/* ------------------------------------------------------------------ */
+
+/* The field a query matched against, mirroring
+   oep::search::MatchLocation (OEP-SPEC-006-REPOSITORY_SEARCH). */
+typedef enum oep_match_location_t {
+    OEP_MATCH_LOCATION_NAME = 0,
+    OEP_MATCH_LOCATION_DESCRIPTION = 1,
+    OEP_MATCH_LOCATION_AUTHOR = 2,
+    OEP_MATCH_LOCATION_TAGS = 3,
+    OEP_MATCH_LOCATION_OBJECT_TYPE = 4,
+    OEP_MATCH_LOCATION_RELATIONSHIP_TYPE = 5,
+} oep_match_location_t;
+
+/* Returns a static, human-readable name for `location`. Never freed by
+   the caller. Deterministic. */
+const char* oep_match_location_to_string(oep_match_location_t location);
+
+/* One Engineering Object search hit — a fixed-layout projection of
+   oep::search::ObjectSearchResult. */
+typedef struct oep_object_search_result_t {
+    char object_id[OEP_MAX_OBJECT_ID];
+    oep_object_type_t object_type;
+    char display_name[OEP_MAX_OBJECT_NAME];
+    oep_match_location_t match_location;
+    double match_score;
+} oep_object_search_result_t;
+
+/* items is a Foundation-owned heap array, in exactly the order
+   Foundation's Search Engine produced it — the Public API never
+   reorders search results. Follows the same ownership model as
+   oep_object_list_t. */
+typedef struct oep_object_search_result_list_t {
+    oep_object_search_result_t* items;
+    int count;
+} oep_object_search_result_list_t;
+
+/* One Relationship search hit — a fixed-layout projection of
+   oep::search::RelationshipSearchResult. */
+typedef struct oep_relationship_search_result_t {
+    char relationship_id[OEP_MAX_RELATIONSHIP_ID];
+    char source_object_id[OEP_MAX_OBJECT_ID];
+    char target_object_id[OEP_MAX_OBJECT_ID];
+    oep_relationship_type_t relationship_type;
+    oep_match_location_t match_location;
+    double match_score;
+} oep_relationship_search_result_t;
+
+/* Same ownership model as oep_object_search_result_list_t. */
+typedef struct oep_relationship_search_result_list_t {
+    oep_relationship_search_result_t* items;
+    int count;
+} oep_relationship_search_result_list_t;
+
+/* The combined result of a repository-wide search: every matching
+   object and every matching relationship, each in its own list and in
+   its own Search-Engine-produced order (the two lists are never
+   merged or interleaved, matching `oep search`'s own "Objects: ... /
+   Relationships: ..." presentation). */
+typedef struct oep_repository_search_result_t {
+    oep_object_search_result_list_t objects;
+    oep_relationship_search_result_list_t relationships;
+} oep_repository_search_result_t;
+
+/* Searches both Engineering Objects and Relationships for `query`
+   (case-insensitive, partial-match, per oep::search::SearchEngine).
+   Only valid from RepositoryOpen; fails with OEP_ERROR_INVALID_STATE
+   otherwise. Fails with OEP_ERROR_INVALID_ARGUMENT for a NULL or empty
+   `query`. On any failure, `*out_result` is zero-initialized.
+   `query` and `out_result` must not be NULL.
+
+   Ownership: on success, the caller owns both
+   out_result->objects.items and out_result->relationships.items and
+   must release them with exactly one call to
+   oep_repository_search_result_release. */
+oep_result_t oep_search_repository(OEP_Runtime runtime, const char* query,
+                                    oep_repository_search_result_t* out_result);
+
+/* Releases both lists owned by `result` (if any) and zeroes them.
+   Safe to call on a zero-initialized or already-released result (a
+   no-op). `result` itself may be NULL (a no-op). */
+void oep_repository_search_result_release(oep_repository_search_result_t* result);
+
+/* Searches Engineering Objects only for `query`. Same state/argument
+   rules as oep_search_repository. Ownership: release with
+   oep_object_search_result_list_release. */
+oep_result_t oep_search_objects(OEP_Runtime runtime, const char* query, oep_object_search_result_list_t* out_list);
+
+/* Releases the heap array owned by `list` (if any) and zeroes it.
+   Safe to call on a zero-initialized or already-released list, and
+   safe to call with `list == NULL` (both no-ops). */
+void oep_object_search_result_list_release(oep_object_search_result_list_t* list);
+
+/* Searches Relationships only for `query`. Same state/argument rules
+   as oep_search_repository. Ownership: release with
+   oep_relationship_search_result_list_release. */
+oep_result_t oep_search_relationships(OEP_Runtime runtime, const char* query,
+                                      oep_relationship_search_result_list_t* out_list);
+
+/* Releases the heap array owned by `list` (if any) and zeroes it.
+   Safe to call on a zero-initialized or already-released list, and
+   safe to call with `list == NULL` (both no-ops). */
+void oep_relationship_search_result_list_release(oep_relationship_search_result_list_t* list);
 
 #ifdef __cplusplus
 }

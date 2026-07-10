@@ -1,8 +1,8 @@
 # API
 
-Status: Foundation (Public C API + Bridge Support + Repository Content Exposure)
+Status: Foundation (Public C API + Bridge Support + Repository Content Exposure + Search)
 
-Purpose: The Public C API — Foundation's only supported native interface, per OEP-SPEC-021-PUBLIC_C_API — the primitives external Bridge implementations (Flutter, C#, Python, Java, etc.) build on, per OEP-SPEC-022-FOUNDATION_BRIDGE_SUPPORT, and (per Work Package 012) the Engineering Object enumeration and repository statistics surface OEP Studio and other consumers need without ever touching Foundation internals. Every Studio, SDK, and testing tool that isn't the CLI is expected to reach Foundation through this boundary rather than linking `platform/runtime` C++ types directly.
+Purpose: The Public C API — Foundation's only supported native interface, per OEP-SPEC-021-PUBLIC_C_API — the primitives external Bridge implementations (Flutter, C#, Python, Java, etc.) build on, per OEP-SPEC-022-FOUNDATION_BRIDGE_SUPPORT, and (per Work Packages 012 and 013) the Engineering Object/Relationship enumeration, repository statistics, and search surface OEP Studio and other consumers need — activating Studio's Relationship Explorer and Search Workspace — without ever touching Foundation internals. Every Studio, SDK, and testing tool that isn't the CLI is expected to reach Foundation through this boundary rather than linking `platform/runtime` or `platform/search` C++ types directly.
 
 ## Architecture
 
@@ -77,21 +77,82 @@ printf("%d Components\n", statistics.object_count_by_type[OEP_OBJECT_TYPE_COMPON
 
 **Performance:** computing statistics requires one full enumeration each of objects, relationships, and packages — proportional to repository size, not cached across calls. Callers that need statistics repeatedly (e.g. a Dashboard polling for updates) should poll at a sensible interval rather than every frame.
 
+## Engineering Relationship Enumeration (Work Package 013, TASK-000025)
+
+Mirrors Engineering Object Enumeration exactly, over Relationships instead of Objects:
+
+```c
+int count = 0;
+oep_relationship_store_get_count(runtime, &count);
+
+oep_relationship_info_t relationship;
+oep_relationship_store_get_by_id(runtime, "a1cc95de-a335-4231-9e59-2ce396f7863c", &relationship);
+
+oep_relationship_list_t all_relationships;
+oep_relationship_store_list(runtime, &all_relationships);
+for (int i = 0; i < all_relationships.count; ++i) {
+    printf("%s -> %s\n", all_relationships.items[i].source_object_id, all_relationships.items[i].target_object_id);
+}
+oep_relationship_list_release(&all_relationships);
+```
+
+`oep_relationship_info_t` is a fixed-layout, pointer-free structure (`relationship_id`, `source_object_id`, `target_object_id`, `relationship_type`, `author`, `description`, `created_utc`). `oep_relationship_store_list` sorts deterministically by `relationship_id` (ascending, byte-wise), for the same reason `oep_object_store_list` does: the underlying `RelationshipStore::list_all()` has no defined order, so the API boundary imposes one.
+
+**Memory ownership:** identical model to Engineering Object Enumeration — `oep_relationship_store_get_count`/`oep_relationship_store_get_by_id` allocate nothing; `oep_relationship_store_list` allocates `oep_relationship_list_t::items` and must be paired with exactly one call to `oep_relationship_list_release`.
+
+**Performance:** same characteristics as `oep_object_store_list` — a full enumeration and one allocation per call, proportional to relationship count, not cached.
+
+## Repository Search (Work Package 013, TASK-000026)
+
+```c
+oep_object_search_result_list_t objects;
+oep_search_objects(runtime, "ignition", &objects);
+for (int i = 0; i < objects.count; ++i) {
+    printf("%s (%s, score %.2f)\n", objects.items[i].display_name,
+           oep_match_location_to_string(objects.items[i].match_location), objects.items[i].match_score);
+}
+oep_object_search_result_list_release(&objects);
+
+oep_repository_search_result_t combined;
+oep_search_repository(runtime, "ignition", &combined);
+/* combined.objects and combined.relationships are populated independently */
+oep_repository_search_result_release(&combined);
+```
+
+Three search entry points mirror `oep search`'s own three forms exactly:
+
+- `oep_search_repository` — both Engineering Objects and Relationships, returned as **two separate lists** (`oep_repository_search_result_t::objects`/`::relationships`), never merged or interleaved — matching `oep search`'s own "Objects: ... / Relationships: ..." presentation, and sidestepping any question of how to rank an object hit against a relationship hit.
+- `oep_search_objects` — Engineering Objects only.
+- `oep_search_relationships` — Relationships only.
+
+All three take a single `query` string; per Work Package 013's explicit scope, filtering by author, tag, or object type is **not** part of this API and remains a caller (Studio) responsibility applied to the returned results, exactly as the CLI's `--type`/`--author`/`--tag` flags already do client-side after `SearchEngine` returns.
+
+**Result ordering is never altered by this API.** `oep_object_search_result_t`/`oep_relationship_search_result_t` are returned in exactly the order `oep::search::SearchEngine` produced them (descending match score, then index order for ties) — the Public API performs a direct, one-to-one field conversion into fixed C structures and nothing more. A Bridge or Studio must not re-sort search results and expect them to still reflect Foundation's ranking.
+
+`oep_match_location_t` mirrors `oep::search::MatchLocation` (`Name`/`Description`/`Author`/`Tags`/`ObjectType`/`RelationshipType`); `match_score` is the same `double` `SearchEngine` computes internally.
+
+A `query` that is `NULL` or empty fails with `OEP_ERROR_INVALID_ARGUMENT` (`SearchEngine::search_objects`/`search_relationships` themselves reject an empty query) — this is a genuinely invalid argument case, not a "no results" case, and the two are never conflated: a valid, non-matching query still succeeds and simply returns a zero-length list.
+
+**Memory ownership:** `oep_search_objects`/`oep_search_relationships` each allocate one heap array (`oep_object_search_result_list_t::items` / `oep_relationship_search_result_list_t::items`), released via `oep_object_search_result_list_release`/`oep_relationship_search_result_list_release`. `oep_search_repository` allocates **two** independent arrays inside `oep_repository_search_result_t`, both released together by exactly one call to `oep_repository_search_result_release` — do not release the two lists individually and then call the combined release function, or the second release will be a safe no-op on already-NULL pointers (harmless, but redundant).
+
+**Performance:** each call performs a full search over the in-memory index built at `open_repository` time (see `platform/search`'s `SearchEngine::build_index`) plus one allocation per result list — proportional to repository size and match count, not cached across calls.
+
 ## Handle Ownership
 
 - `oep_runtime_create` returns an owning handle; the caller must release it with exactly one call to `oep_runtime_destroy`. Returns `NULL` on invalid input or allocation failure — callers must check for `NULL` before use.
 - `oep_runtime_destroy` closes an open repository first if necessary (mirroring `FoundationRuntime::shutdown`), then frees the handle. It is safe to call with `NULL` (a no-op) and safe to call on any state, including one with a repository still open.
 - `oep_result_t` is a plain value type (a `struct` returned by value, containing only an `int`, two `enum`s, and a fixed `char[256]` buffer). It owns no heap memory and requires no release function.
-- `oep_repository_status_t`, `oep_object_info_t`, and `oep_repository_statistics_t` are likewise plain, pointer-free value types — safe to copy with `memcpy` and safe to convert directly into a language-native model by a Bridge.
-- `oep_object_list_t` is the one exception: `items` is a Foundation-owned heap array. It is always paired with `oep_object_list_release`, the API's only release function — see "Engineering Object Enumeration" above for the exact ownership contract.
-- Aside from `oep_object_list_t::items`, no function in this API returns a heap-allocated string or buffer the caller must free. Every other string-valued output is either a pointer into static storage (documented as such at each function, e.g. `oep_foundation_version`, `oep_runtime_state_to_string`) or copied into a caller-supplied fixed buffer embedded in a result/status structure.
+- `oep_repository_status_t`, `oep_object_info_t`, `oep_repository_statistics_t`, `oep_relationship_info_t`, `oep_object_search_result_t`, and `oep_relationship_search_result_t` are likewise plain, pointer-free value types — safe to copy with `memcpy` and safe to convert directly into a language-native model by a Bridge.
+- `oep_object_list_t`, `oep_relationship_list_t`, `oep_object_search_result_list_t`, and `oep_relationship_search_result_list_t` each carry one Foundation-owned heap array (`items`); `oep_repository_search_result_t` carries two (one per embedded list). Every allocating structure is paired with exactly one matching release function — `oep_object_list_release`, `oep_relationship_list_release`, `oep_object_search_result_list_release`, `oep_relationship_search_result_list_release`, and `oep_repository_search_result_release` respectively — see "Engineering Object Enumeration", "Engineering Relationship Enumeration", and "Repository Search" above for the exact ownership contract of each.
+- Aside from those five allocating structures, no function in this API returns a heap-allocated string or buffer the caller must free. Every other string-valued output is either a pointer into static storage (documented as such at each function, e.g. `oep_foundation_version`, `oep_runtime_state_to_string`) or copied into a caller-supplied fixed buffer embedded in a result/status structure.
 
 ## Thread Safety
 
 - A single `OEP_Runtime` handle is **not** safe for concurrent calls — exactly one thread may call functions against a given handle at a time, matching `FoundationRuntime`'s own single-threaded design (it introduces no internal locking).
 - **Distinct** `OEP_Runtime` handles are fully independent and may be used concurrently from different threads, since each wraps its own `FoundationRuntime` instance with no shared mutable state.
-- Functions that take no `OEP_Runtime` (`oep_foundation_version`, `oep_api_version`, `oep_abi_version`, `oep_runtime_state_to_string`, `oep_error_code_to_string`, `oep_error_category_to_string`, `oep_object_type_to_string`) are stateless and safe to call from any thread at any time.
-- `oep_object_list_release` operates only on the `oep_object_list_t` passed to it (freeing its `items` array) and touches no `OEP_Runtime` state — safe to call from any thread, including one different from the thread that populated the list, as long as no other thread is concurrently using or releasing the same list.
+- Functions that take no `OEP_Runtime` (`oep_foundation_version`, `oep_api_version`, `oep_abi_version`, `oep_runtime_state_to_string`, `oep_error_code_to_string`, `oep_error_category_to_string`, `oep_object_type_to_string`, `oep_relationship_type_to_string`, `oep_match_location_to_string`) are stateless and safe to call from any thread at any time.
+- Every `*_release` function (`oep_object_list_release`, `oep_relationship_list_release`, `oep_object_search_result_list_release`, `oep_relationship_search_result_list_release`, `oep_repository_search_result_release`) operates only on the structure passed to it and touches no `OEP_Runtime` state — safe to call from any thread, including one different from the thread that populated the structure, as long as no other thread is concurrently using or releasing the same structure.
+- Relationship enumeration (`oep_relationship_store_get_count`/`_get_by_id`/`_list`) and search (`oep_search_repository`/`_objects`/`_relationships`) follow the same single-handle rule as every other `OEP_Runtime`-taking function: not safe for concurrent calls against the *same* handle, fully independent across *distinct* handles. Search additionally reads the in-memory index `SearchEngine::build_index` constructed when the repository was opened — that index is owned by the `FoundationRuntime` behind the handle, so the same single-handle rule covers it without any separate locking concern.
 - Bridge implementations that expose Foundation to a multi-threaded host environment (e.g. a UI event loop plus background workers) must serialize access to a single handle themselves — a mutex or a single dedicated "Foundation thread" per handle are both correct strategies.
 
 ## Error Handling
@@ -116,8 +177,8 @@ Native C++ exceptions never cross this boundary: every exported function wraps i
 Three independent version signals are exposed, per OEP-SPEC-021 section 8:
 
 - `oep_foundation_version()` — the Foundation version this build implements (e.g. `"0.1.0"`), shared with the CLI (`oep::runtime::kFoundationVersion`, `oep version`/`oep status`) so both layers always agree.
-- `oep_api_version()` — `OEP_API_VERSION`, incremented for any addition or change to this API's functions or structures. Currently `2`, bumped by Work Package 012's purely additive Engineering Object Enumeration and Repository Statistics functions.
-- `oep_abi_version()` — `OEP_ABI_VERSION`, incremented only when a change would break binary compatibility with a previously compiled caller (e.g. a struct layout change). Distinct from `OEP_API_VERSION` because a source-compatible addition need not be an ABI break. Still `1` — Work Package 012 added new functions and structures but did not change the layout of any existing one.
+- `oep_api_version()` — `OEP_API_VERSION`, incremented for any addition or change to this API's functions or structures. Currently `3`: bumped 1 → 2 by Work Package 012 (Engineering Object Enumeration, Repository Statistics) and 2 → 3 by Work Package 013 (Engineering Relationship Enumeration, Repository Search) — both purely additive.
+- `oep_abi_version()` — `OEP_ABI_VERSION`, incremented only when a change would break binary compatibility with a previously compiled caller (e.g. a struct layout change). Distinct from `OEP_API_VERSION` because a source-compatible addition need not be an ABI break. Still `1` — neither Work Package 012 nor 013 changed the layout of any existing structure.
 
 Applications and Bridges should check `oep_abi_version()` against the version they were built against before relying on any struct layout in this header.
 
@@ -127,7 +188,7 @@ A Bridge is any language-neutral adapter that exposes this API to a non-C++ host
 
 - **Runtime state** — `oep_runtime_get_state`/`oep_runtime_state_to_string` give a Bridge a deterministic, five-value state machine to mirror in its own language-native model (e.g. a Dart enum or a C# enum), without needing to infer state from error text.
 - **Error translation** — `error_code`/`error_category` are stable enums suitable for mapping onto language-native exception types or result unions; `error_message` is suitable for direct display or logging without further processing.
-- **Data conversion** — `oep_repository_status_t`, `oep_object_info_t`, and `oep_repository_statistics_t` are all fixed-layout, pointer-free C structs: no `std::string`, no `std::vector`, no owning pointers. A Bridge can copy any of them directly into a native struct/record field-by-field without any Foundation-provided marshaling code, and doing so is deterministic — the same repository state always produces the same structure contents. `oep_object_list_t` is the sole exception carrying an owned pointer (`items`); a Bridge should convert each `oep_object_info_t` in the array into its native collection type and then call `oep_object_list_release` promptly, rather than holding the array open indefinitely.
+- **Data conversion** — `oep_repository_status_t`, `oep_object_info_t`, `oep_repository_statistics_t`, `oep_relationship_info_t`, `oep_object_search_result_t`, and `oep_relationship_search_result_t` are all fixed-layout, pointer-free C structs: no `std::string`, no `std::vector`, no owning pointers. A Bridge can copy any of them directly into a native struct/record field-by-field without any Foundation-provided marshaling code, and doing so is deterministic — the same repository state and query always produce the same structure contents. `oep_object_list_t`, `oep_relationship_list_t`, `oep_object_search_result_list_t`, and `oep_relationship_search_result_list_t` are the exceptions carrying an owned pointer (`items`); a Bridge should convert each element into its native collection type and then call the matching release function promptly, rather than holding the array open indefinitely.
 - **Compatibility** — a Bridge should check `oep_abi_version()` at startup and refuse to load (or warn loudly) if it was generated against/tested with a different ABI version, since a struct layout it depends on may have changed.
 
-This module does not implement a Flutter, C#, Python, or Java Bridge — those are explicitly out of scope for both OEP-SPEC-021 and OEP-SPEC-022 and belong to future, separately ratified tasks. Work Package 012 similarly does not add object/relationship mutation (create/update/delete) to this API — only enumeration and read-only statistics, per its stated objective of satisfying OEP Studio's read requirements without exposing Foundation internals.
+This module does not implement a Flutter, C#, Python, or Java Bridge — those are explicitly out of scope for both OEP-SPEC-021 and OEP-SPEC-022 and belong to future, separately ratified tasks. Work Package 012 similarly does not add object/relationship mutation (create/update/delete) to this API — only enumeration and read-only statistics, per its stated objective of satisfying OEP Studio's read requirements without exposing Foundation internals. Work Package 013 extends the same read-only posture to Relationships and search: no relationship mutation and no server-side filtering (author/tag/type) are added — filtering search results remains a Studio-side responsibility applied after Foundation returns its (unaltered) ranking.

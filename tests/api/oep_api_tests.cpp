@@ -363,6 +363,222 @@ void test_object_type_to_string() {
           "OEP_OBJECT_TYPE_DOCUMENT stringifies correctly");
 }
 
+void test_relationship_enumeration(const std::filesystem::path& scratch_dir) {
+    const std::filesystem::path root = build_populated_repository(scratch_dir / "relationship-enumeration");
+
+    OEP_Runtime runtime = oep_runtime_create("0.1.0");
+    oep_runtime_initialize(runtime);
+    oep_runtime_open_repository(runtime, root.string().c_str());
+
+    int count = -1;
+    const oep_result_t count_result = oep_relationship_store_get_count(runtime, &count);
+    check(count_result.success, "oep_relationship_store_get_count succeeds while a repository is open");
+    check(count == 1, "the relationship count reflects the one created relationship");
+
+    oep_relationship_list_t list;
+    const oep_result_t list_result = oep_relationship_store_list(runtime, &list);
+    check(list_result.success, "oep_relationship_store_list succeeds while a repository is open");
+    check(list.count == 1, "the enumerated list contains the one relationship");
+    check(list.items != nullptr, "a non-empty list has a non-NULL items array");
+
+    if (list.count == 1) {
+        check(list.items[0].relationship_type == OEP_RELATIONSHIP_TYPE_DOCUMENTS,
+              "the enumerated relationship reports OEP_RELATIONSHIP_TYPE_DOCUMENTS");
+        check(std::strlen(list.items[0].source_object_id) == 36, "the relationship reports a source_object_id");
+        check(std::strlen(list.items[0].target_object_id) == 36, "the relationship reports a target_object_id");
+    }
+
+    // Repeated enumeration produces the same deterministic order.
+    oep_relationship_list_t second_list;
+    oep_relationship_store_list(runtime, &second_list);
+    bool same_order = second_list.count == list.count;
+    for (int i = 0; same_order && i < list.count; ++i) {
+        same_order = std::string(list.items[i].relationship_id) == std::string(second_list.items[i].relationship_id);
+    }
+    check(same_order, "repeated relationship enumeration produces the same deterministic order");
+
+    oep_relationship_list_release(&list);
+    check(list.items == nullptr && list.count == 0, "oep_relationship_list_release zeroes the released list");
+    oep_relationship_list_release(&second_list);
+
+    oep_relationship_list_release(&list); // already released; must be a safe no-op
+    check(true, "releasing an already-released relationship list does not crash");
+    oep_relationship_list_release(nullptr);
+    check(true, "oep_relationship_list_release(NULL) does not crash");
+
+    oep_runtime_destroy(runtime);
+}
+
+void test_relationship_lookup_by_id(const std::filesystem::path& scratch_dir) {
+    const std::filesystem::path root = build_populated_repository(scratch_dir / "relationship-lookup");
+
+    OEP_Runtime runtime = oep_runtime_create("0.1.0");
+    oep_runtime_initialize(runtime);
+    oep_runtime_open_repository(runtime, root.string().c_str());
+
+    oep_relationship_list_t list;
+    oep_relationship_store_list(runtime, &list);
+    check(list.count == 1, "the fixture repository has exactly one relationship for the lookup test");
+
+    if (list.count == 1) {
+        oep_relationship_info_t looked_up;
+        const oep_result_t lookup_result =
+            oep_relationship_store_get_by_id(runtime, list.items[0].relationship_id, &looked_up);
+        check(lookup_result.success, "looking up an existing relationship by ID succeeds");
+        check(std::string(looked_up.relationship_id) == std::string(list.items[0].relationship_id),
+              "the looked-up relationship has the requested relationship_id");
+        check(std::string(looked_up.source_object_id) == std::string(list.items[0].source_object_id),
+              "the looked-up relationship has the requested source_object_id");
+    }
+    oep_relationship_list_release(&list);
+
+    oep_relationship_info_t missing;
+    const oep_result_t missing_result =
+        oep_relationship_store_get_by_id(runtime, "00000000-0000-4000-8000-000000000000", &missing);
+    check(!missing_result.success && missing_result.error_code == OEP_ERROR_NOT_FOUND,
+          "looking up a nonexistent relationship ID fails with OEP_ERROR_NOT_FOUND");
+    check(std::string(missing.relationship_id).empty(), "a failed lookup zero-initializes the output structure");
+
+    const oep_result_t null_id_result = oep_relationship_store_get_by_id(runtime, nullptr, &missing);
+    check(!null_id_result.success && null_id_result.error_code == OEP_ERROR_INVALID_ARGUMENT,
+          "looking up with a NULL relationship_id fails with OEP_ERROR_INVALID_ARGUMENT");
+
+    oep_runtime_destroy(runtime);
+}
+
+void test_relationship_enumeration_requires_open_repository() {
+    OEP_Runtime runtime = oep_runtime_create("0.1.0");
+    oep_runtime_initialize(runtime);
+
+    int count = -1;
+    const oep_result_t count_result = oep_relationship_store_get_count(runtime, &count);
+    check(!count_result.success && count_result.error_code == OEP_ERROR_INVALID_STATE,
+          "getting the relationship count without an open repository fails with OEP_ERROR_INVALID_STATE");
+    check(count == 0, "a failed count call resets out_count to zero");
+
+    oep_relationship_list_t list;
+    const oep_result_t list_result = oep_relationship_store_list(runtime, &list);
+    check(!list_result.success && list_result.error_code == OEP_ERROR_INVALID_STATE,
+          "listing relationships without an open repository fails with OEP_ERROR_INVALID_STATE");
+    check(list.items == nullptr && list.count == 0, "a failed list call is zero-initialized");
+
+    oep_runtime_destroy(runtime);
+}
+
+void test_relationship_type_to_string() {
+    check(std::string(oep_relationship_type_to_string(OEP_RELATIONSHIP_TYPE_DOCUMENTS)) == "Documents",
+          "OEP_RELATIONSHIP_TYPE_DOCUMENTS stringifies correctly");
+    check(std::string(oep_relationship_type_to_string(OEP_RELATIONSHIP_TYPE_REFERENCES)) == "References",
+          "OEP_RELATIONSHIP_TYPE_REFERENCES stringifies correctly");
+}
+
+void test_match_location_to_string() {
+    check(std::string(oep_match_location_to_string(OEP_MATCH_LOCATION_NAME)) == "Name",
+          "OEP_MATCH_LOCATION_NAME stringifies correctly");
+    check(std::string(oep_match_location_to_string(OEP_MATCH_LOCATION_TAGS)) == "Tags",
+          "OEP_MATCH_LOCATION_TAGS stringifies correctly");
+}
+
+void test_search_objects(const std::filesystem::path& scratch_dir) {
+    const std::filesystem::path root = build_populated_repository(scratch_dir / "search-objects");
+
+    OEP_Runtime runtime = oep_runtime_create("0.1.0");
+    oep_runtime_initialize(runtime);
+    oep_runtime_open_repository(runtime, root.string().c_str());
+
+    oep_object_search_result_list_t list;
+    const oep_result_t result = oep_search_objects(runtime, "coil", &list);
+    check(result.success, "oep_search_objects succeeds for a matching query");
+    check(list.count == 1, "searching for 'coil' finds exactly the Ignition Coil object");
+    if (list.count == 1) {
+        check(std::string(list.items[0].display_name) == "Ignition Coil",
+              "the search result reports the correct display_name");
+        check(list.items[0].object_type == OEP_OBJECT_TYPE_COMPONENT,
+              "the search result reports the correct object_type");
+        check(list.items[0].match_score > 0.0, "the search result reports a positive match_score");
+    }
+    oep_object_search_result_list_release(&list);
+    check(list.items == nullptr && list.count == 0, "oep_object_search_result_list_release zeroes the list");
+
+    oep_object_search_result_list_t no_match_list;
+    oep_search_objects(runtime, "zzz-nomatch", &no_match_list);
+    check(no_match_list.count == 0, "searching for a nonexistent term finds no objects");
+    oep_object_search_result_list_release(&no_match_list);
+
+    oep_object_search_result_list_t empty_query_list;
+    const oep_result_t empty_query_result = oep_search_objects(runtime, "", &empty_query_list);
+    check(!empty_query_result.success, "searching with an empty query fails");
+
+    const oep_result_t null_query_result = oep_search_objects(runtime, nullptr, &list);
+    check(!null_query_result.success && null_query_result.error_code == OEP_ERROR_INVALID_ARGUMENT,
+          "searching with a NULL query fails with OEP_ERROR_INVALID_ARGUMENT");
+
+    oep_runtime_destroy(runtime);
+}
+
+void test_search_relationships(const std::filesystem::path& scratch_dir) {
+    const std::filesystem::path root = build_populated_repository(scratch_dir / "search-relationships");
+
+    OEP_Runtime runtime = oep_runtime_create("0.1.0");
+    oep_runtime_initialize(runtime);
+    oep_runtime_open_repository(runtime, root.string().c_str());
+
+    oep_relationship_search_result_list_t list;
+    const oep_result_t result = oep_search_relationships(runtime, "documents", &list);
+    check(result.success, "oep_search_relationships succeeds for a matching query");
+    check(list.count == 1, "searching for 'documents' finds the one Documents relationship");
+    if (list.count == 1) {
+        check(list.items[0].relationship_type == OEP_RELATIONSHIP_TYPE_DOCUMENTS,
+              "the search result reports the correct relationship_type");
+    }
+    oep_relationship_search_result_list_release(&list);
+    check(list.items == nullptr && list.count == 0, "oep_relationship_search_result_list_release zeroes the list");
+
+    oep_runtime_destroy(runtime);
+}
+
+void test_search_repository(const std::filesystem::path& scratch_dir) {
+    const std::filesystem::path root = build_populated_repository(scratch_dir / "search-repository");
+
+    OEP_Runtime runtime = oep_runtime_create("0.1.0");
+    oep_runtime_initialize(runtime);
+    oep_runtime_open_repository(runtime, root.string().c_str());
+
+    oep_repository_search_result_t result;
+    const oep_result_t search_result = oep_search_repository(runtime, "jane", &result);
+    check(search_result.success, "oep_search_repository succeeds for a matching query");
+    check(result.objects.count >= 1, "searching 'jane' finds at least one object (both objects have author Jane)");
+    check(result.relationships.count >= 0, "the relationships list is present, even if zero-length");
+    oep_repository_search_result_release(&result);
+    check(result.objects.items == nullptr && result.objects.count == 0,
+          "oep_repository_search_result_release zeroes the objects list");
+    check(result.relationships.items == nullptr && result.relationships.count == 0,
+          "oep_repository_search_result_release zeroes the relationships list");
+
+    oep_repository_search_result_release(nullptr);
+    check(true, "oep_repository_search_result_release(NULL) does not crash");
+
+    oep_runtime_destroy(runtime);
+}
+
+void test_search_requires_open_repository() {
+    OEP_Runtime runtime = oep_runtime_create("0.1.0");
+    oep_runtime_initialize(runtime);
+
+    oep_object_search_result_list_t objects_list;
+    const oep_result_t objects_result = oep_search_objects(runtime, "anything", &objects_list);
+    check(!objects_result.success && objects_result.error_code == OEP_ERROR_INVALID_STATE,
+          "searching objects without an open repository fails with OEP_ERROR_INVALID_STATE");
+    check(objects_list.items == nullptr && objects_list.count == 0, "the failed search's list is zero-initialized");
+
+    oep_repository_search_result_t repo_result;
+    const oep_result_t repo_search_result = oep_search_repository(runtime, "anything", &repo_result);
+    check(!repo_search_result.success && repo_search_result.error_code == OEP_ERROR_INVALID_STATE,
+          "searching the repository without an open repository fails with OEP_ERROR_INVALID_STATE");
+
+    oep_runtime_destroy(runtime);
+}
+
 void test_destroy_closes_an_open_repository(const std::filesystem::path& scratch_dir) {
     const std::filesystem::path root = build_repository(scratch_dir / "destroy-open");
 
@@ -398,6 +614,15 @@ int main() {
     test_repository_statistics(scratch_dir);
     test_repository_statistics_requires_open_repository();
     test_object_type_to_string();
+    test_relationship_enumeration(scratch_dir);
+    test_relationship_lookup_by_id(scratch_dir);
+    test_relationship_enumeration_requires_open_repository();
+    test_relationship_type_to_string();
+    test_match_location_to_string();
+    test_search_objects(scratch_dir);
+    test_search_relationships(scratch_dir);
+    test_search_repository(scratch_dir);
+    test_search_requires_open_repository();
     test_destroy_closes_an_open_repository(scratch_dir);
 
     std::filesystem::remove_all(scratch_dir);
