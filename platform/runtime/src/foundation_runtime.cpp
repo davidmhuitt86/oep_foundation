@@ -24,6 +24,13 @@ RuntimeState FoundationRuntime::state() const {
 }
 
 void FoundationRuntime::reset_repository_context() {
+    // Never leave a transaction stranded: roll it back while the stores
+    // it needs (objects_/relationships_) are still valid, before they
+    // are reset below.
+    if (transaction_active_) {
+        rollback_transaction_internal();
+    }
+
     repository_root_.clear();
     metadata_.reset();
     audit_.reset();
@@ -33,6 +40,33 @@ void FoundationRuntime::reset_repository_context() {
     graph_.reset();
     validator_.reset();
     packages_.reset();
+}
+
+void FoundationRuntime::rollback_transaction_internal() {
+    for (auto it = transaction_log_.rbegin(); it != transaction_log_.rend(); ++it) {
+        switch (it->kind) {
+            case TransactionLogEntry::Kind::ObjectCreated:
+                objects_->remove(it->object_snapshot.object_id);
+                break;
+            case TransactionLogEntry::Kind::ObjectUpdated:
+                objects_->update(it->object_snapshot);
+                break;
+            case TransactionLogEntry::Kind::ObjectDeleted:
+                objects_->restore(it->object_snapshot);
+                break;
+            case TransactionLogEntry::Kind::RelationshipCreated:
+                relationships_->remove(it->relationship_snapshot.relationship_id);
+                break;
+            case TransactionLogEntry::Kind::RelationshipUpdated:
+                relationships_->update(it->relationship_snapshot);
+                break;
+            case TransactionLogEntry::Kind::RelationshipDeleted:
+                relationships_->restore(it->relationship_snapshot);
+                break;
+        }
+    }
+    transaction_log_.clear();
+    transaction_active_ = false;
 }
 
 RuntimeResult FoundationRuntime::initialize() {
@@ -278,6 +312,324 @@ RuntimeBatchValidateResult FoundationRuntime::validate_batch_create(const std::s
     const std::vector<std::string> findings =
         oep::repository::validate_batch_create_request(parsed.request, *objects_);
     return {true, "", findings};
+}
+
+RuntimeObjectMutationResult FoundationRuntime::create_object(oep::repository::ObjectType object_type,
+                                                               const std::string& name, const std::string& description,
+                                                               const std::string& author,
+                                                               const std::vector<std::string>& tags) {
+    if (state_ != RuntimeState::RepositoryOpen) {
+        return {false, "no repository is currently open", {}};
+    }
+
+    oep::repository::EngineeringObject object;
+    object.object_type = object_type;
+    object.name = name;
+    object.description = description;
+    object.author = author;
+    object.tags = tags;
+
+    const oep::repository::LoadObjectResult result = objects_->create(object);
+    if (!result.success) {
+        if (transaction_active_) {
+            rollback_transaction_internal();
+        }
+        return {false, result.error, {}};
+    }
+
+    if (transaction_active_) {
+        TransactionLogEntry entry;
+        entry.kind = TransactionLogEntry::Kind::ObjectCreated;
+        entry.object_snapshot = result.object;
+        transaction_log_.push_back(std::move(entry));
+    }
+
+    return {true, "", result.object};
+}
+
+RuntimeObjectMutationResult FoundationRuntime::update_object(const std::string& object_id, const std::string& name,
+                                                               const std::string& description,
+                                                               const std::string& author,
+                                                               const std::vector<std::string>& tags) {
+    if (state_ != RuntimeState::RepositoryOpen) {
+        return {false, "no repository is currently open", {}};
+    }
+
+    const oep::repository::LoadObjectResult existing = objects_->load(object_id);
+    if (!existing.success) {
+        if (transaction_active_) {
+            rollback_transaction_internal();
+        }
+        return {false, existing.error, {}};
+    }
+
+    oep::repository::EngineeringObject updated = existing.object;
+    updated.name = name;
+    updated.description = description;
+    updated.author = author;
+    updated.tags = tags;
+
+    const oep::repository::ObjectResult result = objects_->update(updated);
+    if (!result.success) {
+        if (transaction_active_) {
+            rollback_transaction_internal();
+        }
+        return {false, result.error, {}};
+    }
+
+    if (transaction_active_) {
+        TransactionLogEntry entry;
+        entry.kind = TransactionLogEntry::Kind::ObjectUpdated;
+        entry.object_snapshot = existing.object; // pre-update record, for undo
+        transaction_log_.push_back(std::move(entry));
+    }
+
+    const oep::repository::LoadObjectResult reloaded = objects_->load(object_id);
+    return {true, "", reloaded.success ? reloaded.object : updated};
+}
+
+RuntimeResult FoundationRuntime::delete_object(const std::string& object_id) {
+    if (state_ != RuntimeState::RepositoryOpen) {
+        return {false, "no repository is currently open"};
+    }
+
+    const oep::repository::LoadObjectResult existing = objects_->load(object_id);
+    if (!existing.success) {
+        if (transaction_active_) {
+            rollback_transaction_internal();
+        }
+        return {false, existing.error};
+    }
+
+    const oep::repository::ObjectResult result = objects_->remove(object_id);
+    if (!result.success) {
+        if (transaction_active_) {
+            rollback_transaction_internal();
+        }
+        return {result.success, result.error};
+    }
+
+    if (transaction_active_) {
+        TransactionLogEntry entry;
+        entry.kind = TransactionLogEntry::Kind::ObjectDeleted;
+        entry.object_snapshot = existing.object; // pre-delete record, for undo
+        transaction_log_.push_back(std::move(entry));
+    }
+
+    return {true, ""};
+}
+
+RuntimeRelationshipMutationResult FoundationRuntime::create_relationship(
+    const std::string& source_object_id, const std::string& target_object_id,
+    oep::repository::RelationshipType relationship_type, const std::string& author, const std::string& description) {
+    if (state_ != RuntimeState::RepositoryOpen) {
+        return {false, "no repository is currently open", {}};
+    }
+
+    oep::repository::Relationship relationship;
+    relationship.source_object_id = source_object_id;
+    relationship.target_object_id = target_object_id;
+    relationship.relationship_type = relationship_type;
+    relationship.author = author;
+    relationship.description = description;
+
+    const oep::repository::LoadRelationshipResult result = relationships_->create(relationship);
+    if (!result.success) {
+        if (transaction_active_) {
+            rollback_transaction_internal();
+        }
+        return {false, result.error, {}};
+    }
+
+    if (transaction_active_) {
+        TransactionLogEntry entry;
+        entry.kind = TransactionLogEntry::Kind::RelationshipCreated;
+        entry.relationship_snapshot = result.relationship;
+        transaction_log_.push_back(std::move(entry));
+    }
+
+    return {true, "", result.relationship};
+}
+
+RuntimeRelationshipMutationResult FoundationRuntime::update_relationship(const std::string& relationship_id,
+                                                                          const std::string& author,
+                                                                          const std::string& description) {
+    if (state_ != RuntimeState::RepositoryOpen) {
+        return {false, "no repository is currently open", {}};
+    }
+
+    const oep::repository::LoadRelationshipResult existing = relationships_->load(relationship_id);
+    if (!existing.success) {
+        if (transaction_active_) {
+            rollback_transaction_internal();
+        }
+        return {false, existing.error, {}};
+    }
+
+    oep::repository::Relationship updated = existing.relationship;
+    updated.author = author;
+    updated.description = description;
+
+    const oep::repository::RelationshipResult result = relationships_->update(updated);
+    if (!result.success) {
+        if (transaction_active_) {
+            rollback_transaction_internal();
+        }
+        return {false, result.error, {}};
+    }
+
+    if (transaction_active_) {
+        TransactionLogEntry entry;
+        entry.kind = TransactionLogEntry::Kind::RelationshipUpdated;
+        entry.relationship_snapshot = existing.relationship; // pre-update record, for undo
+        transaction_log_.push_back(std::move(entry));
+    }
+
+    const oep::repository::LoadRelationshipResult reloaded = relationships_->load(relationship_id);
+    return {true, "", reloaded.success ? reloaded.relationship : updated};
+}
+
+RuntimeResult FoundationRuntime::delete_relationship(const std::string& relationship_id) {
+    if (state_ != RuntimeState::RepositoryOpen) {
+        return {false, "no repository is currently open"};
+    }
+
+    const oep::repository::LoadRelationshipResult existing = relationships_->load(relationship_id);
+    if (!existing.success) {
+        if (transaction_active_) {
+            rollback_transaction_internal();
+        }
+        return {false, existing.error};
+    }
+
+    const oep::repository::RelationshipResult result = relationships_->remove(relationship_id);
+    if (!result.success) {
+        if (transaction_active_) {
+            rollback_transaction_internal();
+        }
+        return {result.success, result.error};
+    }
+
+    if (transaction_active_) {
+        TransactionLogEntry entry;
+        entry.kind = TransactionLogEntry::Kind::RelationshipDeleted;
+        entry.relationship_snapshot = existing.relationship; // pre-delete record, for undo
+        transaction_log_.push_back(std::move(entry));
+    }
+
+    return {true, ""};
+}
+
+RuntimeResult FoundationRuntime::begin_transaction() {
+    if (state_ != RuntimeState::RepositoryOpen) {
+        return {false, "no repository is currently open"};
+    }
+    if (transaction_active_) {
+        return {false, "a transaction is already active; nested transactions are not supported"};
+    }
+    transaction_active_ = true;
+    transaction_log_.clear();
+    return {true, ""};
+}
+
+RuntimeResult FoundationRuntime::commit_transaction() {
+    if (state_ != RuntimeState::RepositoryOpen) {
+        return {false, "no repository is currently open"};
+    }
+    if (!transaction_active_) {
+        return {false, "no transaction is currently active"};
+    }
+    // Every mutation was already persisted as it happened; committing
+    // simply discards the undo log rather than replaying anything.
+    transaction_log_.clear();
+    transaction_active_ = false;
+    return {true, ""};
+}
+
+RuntimeResult FoundationRuntime::rollback_transaction() {
+    if (state_ != RuntimeState::RepositoryOpen) {
+        return {false, "no repository is currently open"};
+    }
+    if (!transaction_active_) {
+        return {false, "no transaction is currently active"};
+    }
+    rollback_transaction_internal();
+    return {true, ""};
+}
+
+bool FoundationRuntime::transaction_active() const {
+    return transaction_active_;
+}
+
+RuntimeBatchCreateObjectsResult FoundationRuntime::batch_create_objects(const std::vector<ObjectCreateSpec>& specs) {
+    if (state_ != RuntimeState::RepositoryOpen) {
+        return {false, "no repository is currently open", -1, {}};
+    }
+
+    const bool started_own_transaction = !transaction_active_;
+    if (started_own_transaction) {
+        const RuntimeResult begin_result = begin_transaction();
+        if (!begin_result.success) {
+            return {false, begin_result.error, -1, {}};
+        }
+    }
+
+    std::vector<oep::repository::EngineeringObject> created;
+    for (std::size_t i = 0; i < specs.size(); ++i) {
+        const RuntimeObjectMutationResult result =
+            create_object(specs[i].object_type, specs[i].name, specs[i].description, specs[i].author, specs[i].tags);
+        if (!result.success) {
+            // create_object() already rolled back and deactivated the
+            // transaction, whether we began it just above or the
+            // caller already had it active.
+            return {false, result.error, static_cast<int>(i), {}};
+        }
+        created.push_back(result.object);
+    }
+
+    if (started_own_transaction) {
+        const RuntimeResult commit_result = commit_transaction();
+        if (!commit_result.success) {
+            return {false, commit_result.error, -1, {}};
+        }
+    }
+
+    return {true, "", -1, created};
+}
+
+RuntimeBatchCreateRelationshipsResult FoundationRuntime::batch_create_relationships(
+    const std::vector<RelationshipCreateSpec>& specs) {
+    if (state_ != RuntimeState::RepositoryOpen) {
+        return {false, "no repository is currently open", -1, {}};
+    }
+
+    const bool started_own_transaction = !transaction_active_;
+    if (started_own_transaction) {
+        const RuntimeResult begin_result = begin_transaction();
+        if (!begin_result.success) {
+            return {false, begin_result.error, -1, {}};
+        }
+    }
+
+    std::vector<oep::repository::Relationship> created;
+    for (std::size_t i = 0; i < specs.size(); ++i) {
+        const RuntimeRelationshipMutationResult result =
+            create_relationship(specs[i].source_object_id, specs[i].target_object_id, specs[i].relationship_type,
+                                 specs[i].author, specs[i].description);
+        if (!result.success) {
+            return {false, result.error, static_cast<int>(i), {}};
+        }
+        created.push_back(result.relationship);
+    }
+
+    if (started_own_transaction) {
+        const RuntimeResult commit_result = commit_transaction();
+        if (!commit_result.success) {
+            return {false, commit_result.error, -1, {}};
+        }
+    }
+
+    return {true, "", -1, created};
 }
 
 } // namespace oep::runtime

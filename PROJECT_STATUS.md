@@ -231,7 +231,7 @@ Complete (`FoundationRuntime` — lifecycle + service registry for Repository/Se
 
 Public C API
 
-Complete (`oep_api` — pure C ABI over `FoundationRuntime`: runtime/repository lifecycle, error reporting, versioning — per OEP-SPEC-021; Bridge support — deterministic runtime state, error category, Bridge-compatible data structures — per OEP-SPEC-022; Engineering Object enumeration and Repository Statistics — per Work Package 012; Engineering Relationship enumeration and Repository Search — per Work Package 013 — satisfying OEP Studio's read requirements, including the Relationship Explorer and Search Workspace, with no Foundation-internal exposure)
+Complete (`oep_api` — pure C ABI over `FoundationRuntime`: runtime/repository lifecycle, error reporting, versioning — per OEP-SPEC-021; Bridge support — deterministic runtime state, error category, Bridge-compatible data structures — per OEP-SPEC-022; Engineering Object enumeration and Repository Statistics — per Work Package 012; Engineering Relationship enumeration and Repository Search — per Work Package 013; Object/Relationship Mutation, Transactions, and Batch Mutation — per Work Package 014, the first write-capable surface of this API — satisfying OEP Studio's read and write requirements with no Foundation-internal exposure)
 
 SDK
 

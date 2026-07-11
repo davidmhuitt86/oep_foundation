@@ -83,6 +83,32 @@ void zero_repository_search_result(oep_repository_search_result_t* out_result) {
     zero_relationship_search_result_list(&out_result->relationships);
 }
 
+void zero_batch_create_objects_result(oep_batch_create_objects_result_t* out_result) {
+    out_result->success = 0;
+    out_result->failed_index = -1;
+    out_result->created.items = nullptr;
+    out_result->created.count = 0;
+}
+
+void zero_batch_create_relationships_result(oep_batch_create_relationships_result_t* out_result) {
+    out_result->success = 0;
+    out_result->failed_index = -1;
+    out_result->created.items = nullptr;
+    out_result->created.count = 0;
+}
+
+// Builds a std::vector<std::string> from a C `tags`/`tag_count` pair,
+// treating a NULL individual entry as an empty string (never
+// dereferencing a NULL char*). Shared by oep_object_create,
+// oep_object_update, and the batch object-create path.
+std::vector<std::string> tags_from_capi(const char* const* tags, int tag_count) {
+    std::vector<std::string> result;
+    for (int i = 0; i < tag_count; ++i) {
+        result.emplace_back(tags != nullptr && tags[i] != nullptr ? tags[i] : "");
+    }
+    return result;
+}
+
 } // namespace
 
 namespace oep::api::detail {
@@ -215,9 +241,50 @@ void populate_relationship_search_result(const oep::search::RelationshipSearchRe
     out_result->match_score = result.match_score;
 }
 
+std::optional<oep::repository::ObjectType> from_capi_object_type(oep_object_type_t type) {
+    switch (type) {
+        case OEP_OBJECT_TYPE_DOCUMENT: return oep::repository::ObjectType::Document;
+        case OEP_OBJECT_TYPE_DIAGRAM: return oep::repository::ObjectType::Diagram;
+        case OEP_OBJECT_TYPE_COMPONENT: return oep::repository::ObjectType::Component;
+        case OEP_OBJECT_TYPE_PROCEDURE: return oep::repository::ObjectType::Procedure;
+        case OEP_OBJECT_TYPE_PROJECT: return oep::repository::ObjectType::Project;
+        case OEP_OBJECT_TYPE_IMAGE: return oep::repository::ObjectType::Image;
+    }
+    return std::nullopt;
+}
+
+std::optional<oep::repository::RelationshipType> from_capi_relationship_type(oep_relationship_type_t type) {
+    switch (type) {
+        case OEP_RELATIONSHIP_TYPE_REFERENCES: return oep::repository::RelationshipType::References;
+        case OEP_RELATIONSHIP_TYPE_CONTAINS: return oep::repository::RelationshipType::Contains;
+        case OEP_RELATIONSHIP_TYPE_DEPENDS_ON: return oep::repository::RelationshipType::DependsOn;
+        case OEP_RELATIONSHIP_TYPE_CONNECTED_TO: return oep::repository::RelationshipType::ConnectedTo;
+        case OEP_RELATIONSHIP_TYPE_DOCUMENTS: return oep::repository::RelationshipType::Documents;
+        case OEP_RELATIONSHIP_TYPE_IMPLEMENTS: return oep::repository::RelationshipType::Implements;
+    }
+    return std::nullopt;
+}
+
+oep_error_code_t classify_mutation_error(const std::string& message) {
+    if (message.find("does not exist") != std::string::npos ||
+        message.find("no object with id") != std::string::npos ||
+        message.find("no relationship with id") != std::string::npos) {
+        return OEP_ERROR_NOT_FOUND;
+    }
+    if (message.find("refusing to create invalid") != std::string::npos ||
+        message.find("refusing to save invalid") != std::string::npos ||
+        message.find("refusing to restore invalid") != std::string::npos) {
+        return OEP_ERROR_INVALID_ARGUMENT;
+    }
+    return OEP_ERROR_OPERATION_FAILED;
+}
+
 } // namespace oep::api::detail
 
 using oep::api::detail::category_for_code;
+using oep::api::detail::classify_mutation_error;
+using oep::api::detail::from_capi_object_type;
+using oep::api::detail::from_capi_relationship_type;
 using oep::api::detail::make_error_result;
 using oep::api::detail::make_success_result;
 using oep::api::detail::populate_object_info;
@@ -982,6 +1049,534 @@ void oep_relationship_search_result_list_release(oep_relationship_search_result_
     delete[] list->items;
     list->items = nullptr;
     list->count = 0;
+}
+
+oep_result_t oep_object_create(OEP_Runtime runtime, oep_object_type_t object_type, const char* name,
+                                const char* description, const char* author, const char* const* tags, int tag_count,
+                                oep_object_info_t* out_object) {
+    if (out_object != nullptr) {
+        zero_object_info(out_object);
+    }
+    if (runtime == nullptr) {
+        return make_error_result(OEP_ERROR_INVALID_ARGUMENT, category_for_code(OEP_ERROR_INVALID_ARGUMENT),
+                                  "runtime handle is null");
+    }
+    if (name == nullptr) {
+        return make_error_result(OEP_ERROR_INVALID_ARGUMENT, category_for_code(OEP_ERROR_INVALID_ARGUMENT),
+                                  "name is null");
+    }
+    if (tag_count < 0) {
+        return make_error_result(OEP_ERROR_INVALID_ARGUMENT, category_for_code(OEP_ERROR_INVALID_ARGUMENT),
+                                  "tag_count is negative");
+    }
+    if (tag_count > 0 && tags == nullptr) {
+        return make_error_result(OEP_ERROR_INVALID_ARGUMENT, category_for_code(OEP_ERROR_INVALID_ARGUMENT),
+                                  "tags is null but tag_count is nonzero");
+    }
+    const std::optional<oep::repository::ObjectType> internal_type = from_capi_object_type(object_type);
+    if (!internal_type.has_value()) {
+        return make_error_result(OEP_ERROR_INVALID_ARGUMENT, category_for_code(OEP_ERROR_INVALID_ARGUMENT),
+                                  "unrecognized object_type");
+    }
+    try {
+        if (runtime->runtime.state() != oep::runtime::RuntimeState::RepositoryOpen) {
+            return make_error_result(OEP_ERROR_INVALID_STATE, category_for_code(OEP_ERROR_INVALID_STATE),
+                                      "no repository is currently open");
+        }
+        const oep::runtime::RuntimeObjectMutationResult result = runtime->runtime.create_object(
+            *internal_type, name, description != nullptr ? description : "", author != nullptr ? author : "",
+            tags_from_capi(tags, tag_count));
+        if (!result.success) {
+            const oep_error_code_t code = classify_mutation_error(result.error);
+            return make_error_result(code, category_for_code(code), result.error);
+        }
+        if (out_object != nullptr) {
+            populate_object_info(result.object, out_object);
+        }
+        return make_success_result();
+    } catch (const std::exception& ex) {
+        if (out_object != nullptr) zero_object_info(out_object);
+        return make_error_result(OEP_ERROR_INTERNAL, category_for_code(OEP_ERROR_INTERNAL), ex.what());
+    } catch (...) {
+        if (out_object != nullptr) zero_object_info(out_object);
+        return make_error_result(OEP_ERROR_INTERNAL, category_for_code(OEP_ERROR_INTERNAL), "unknown internal error");
+    }
+}
+
+oep_result_t oep_object_update(OEP_Runtime runtime, const char* object_id, const char* name,
+                                const char* description, const char* author, const char* const* tags, int tag_count,
+                                oep_object_info_t* out_object) {
+    if (out_object != nullptr) {
+        zero_object_info(out_object);
+    }
+    if (runtime == nullptr) {
+        return make_error_result(OEP_ERROR_INVALID_ARGUMENT, category_for_code(OEP_ERROR_INVALID_ARGUMENT),
+                                  "runtime handle is null");
+    }
+    if (object_id == nullptr) {
+        return make_error_result(OEP_ERROR_INVALID_ARGUMENT, category_for_code(OEP_ERROR_INVALID_ARGUMENT),
+                                  "object_id is null");
+    }
+    if (name == nullptr) {
+        return make_error_result(OEP_ERROR_INVALID_ARGUMENT, category_for_code(OEP_ERROR_INVALID_ARGUMENT),
+                                  "name is null");
+    }
+    if (tag_count < 0) {
+        return make_error_result(OEP_ERROR_INVALID_ARGUMENT, category_for_code(OEP_ERROR_INVALID_ARGUMENT),
+                                  "tag_count is negative");
+    }
+    if (tag_count > 0 && tags == nullptr) {
+        return make_error_result(OEP_ERROR_INVALID_ARGUMENT, category_for_code(OEP_ERROR_INVALID_ARGUMENT),
+                                  "tags is null but tag_count is nonzero");
+    }
+    try {
+        if (runtime->runtime.state() != oep::runtime::RuntimeState::RepositoryOpen) {
+            return make_error_result(OEP_ERROR_INVALID_STATE, category_for_code(OEP_ERROR_INVALID_STATE),
+                                      "no repository is currently open");
+        }
+        const oep::runtime::RuntimeObjectMutationResult result = runtime->runtime.update_object(
+            object_id, name, description != nullptr ? description : "", author != nullptr ? author : "",
+            tags_from_capi(tags, tag_count));
+        if (!result.success) {
+            const oep_error_code_t code = classify_mutation_error(result.error);
+            return make_error_result(code, category_for_code(code), result.error);
+        }
+        if (out_object != nullptr) {
+            populate_object_info(result.object, out_object);
+        }
+        return make_success_result();
+    } catch (const std::exception& ex) {
+        if (out_object != nullptr) zero_object_info(out_object);
+        return make_error_result(OEP_ERROR_INTERNAL, category_for_code(OEP_ERROR_INTERNAL), ex.what());
+    } catch (...) {
+        if (out_object != nullptr) zero_object_info(out_object);
+        return make_error_result(OEP_ERROR_INTERNAL, category_for_code(OEP_ERROR_INTERNAL), "unknown internal error");
+    }
+}
+
+oep_result_t oep_object_delete(OEP_Runtime runtime, const char* object_id) {
+    if (runtime == nullptr) {
+        return make_error_result(OEP_ERROR_INVALID_ARGUMENT, category_for_code(OEP_ERROR_INVALID_ARGUMENT),
+                                  "runtime handle is null");
+    }
+    if (object_id == nullptr) {
+        return make_error_result(OEP_ERROR_INVALID_ARGUMENT, category_for_code(OEP_ERROR_INVALID_ARGUMENT),
+                                  "object_id is null");
+    }
+    try {
+        if (runtime->runtime.state() != oep::runtime::RuntimeState::RepositoryOpen) {
+            return make_error_result(OEP_ERROR_INVALID_STATE, category_for_code(OEP_ERROR_INVALID_STATE),
+                                      "no repository is currently open");
+        }
+        const oep::runtime::RuntimeResult result = runtime->runtime.delete_object(object_id);
+        if (!result.success) {
+            const oep_error_code_t code = classify_mutation_error(result.error);
+            return make_error_result(code, category_for_code(code), result.error);
+        }
+        return make_success_result();
+    } catch (const std::exception& ex) {
+        return make_error_result(OEP_ERROR_INTERNAL, category_for_code(OEP_ERROR_INTERNAL), ex.what());
+    } catch (...) {
+        return make_error_result(OEP_ERROR_INTERNAL, category_for_code(OEP_ERROR_INTERNAL), "unknown internal error");
+    }
+}
+
+oep_result_t oep_relationship_create(OEP_Runtime runtime, const char* source_object_id,
+                                      const char* target_object_id, oep_relationship_type_t relationship_type,
+                                      const char* author, const char* description,
+                                      oep_relationship_info_t* out_relationship) {
+    if (out_relationship != nullptr) {
+        zero_relationship_info(out_relationship);
+    }
+    if (runtime == nullptr) {
+        return make_error_result(OEP_ERROR_INVALID_ARGUMENT, category_for_code(OEP_ERROR_INVALID_ARGUMENT),
+                                  "runtime handle is null");
+    }
+    if (source_object_id == nullptr) {
+        return make_error_result(OEP_ERROR_INVALID_ARGUMENT, category_for_code(OEP_ERROR_INVALID_ARGUMENT),
+                                  "source_object_id is null");
+    }
+    if (target_object_id == nullptr) {
+        return make_error_result(OEP_ERROR_INVALID_ARGUMENT, category_for_code(OEP_ERROR_INVALID_ARGUMENT),
+                                  "target_object_id is null");
+    }
+    const std::optional<oep::repository::RelationshipType> internal_type =
+        from_capi_relationship_type(relationship_type);
+    if (!internal_type.has_value()) {
+        return make_error_result(OEP_ERROR_INVALID_ARGUMENT, category_for_code(OEP_ERROR_INVALID_ARGUMENT),
+                                  "unrecognized relationship_type");
+    }
+    try {
+        if (runtime->runtime.state() != oep::runtime::RuntimeState::RepositoryOpen) {
+            return make_error_result(OEP_ERROR_INVALID_STATE, category_for_code(OEP_ERROR_INVALID_STATE),
+                                      "no repository is currently open");
+        }
+        const oep::runtime::RuntimeRelationshipMutationResult result = runtime->runtime.create_relationship(
+            source_object_id, target_object_id, *internal_type, author != nullptr ? author : "",
+            description != nullptr ? description : "");
+        if (!result.success) {
+            const oep_error_code_t code = classify_mutation_error(result.error);
+            return make_error_result(code, category_for_code(code), result.error);
+        }
+        if (out_relationship != nullptr) {
+            populate_relationship_info(result.relationship, out_relationship);
+        }
+        return make_success_result();
+    } catch (const std::exception& ex) {
+        if (out_relationship != nullptr) zero_relationship_info(out_relationship);
+        return make_error_result(OEP_ERROR_INTERNAL, category_for_code(OEP_ERROR_INTERNAL), ex.what());
+    } catch (...) {
+        if (out_relationship != nullptr) zero_relationship_info(out_relationship);
+        return make_error_result(OEP_ERROR_INTERNAL, category_for_code(OEP_ERROR_INTERNAL), "unknown internal error");
+    }
+}
+
+oep_result_t oep_relationship_update(OEP_Runtime runtime, const char* relationship_id, const char* author,
+                                      const char* description, oep_relationship_info_t* out_relationship) {
+    if (out_relationship != nullptr) {
+        zero_relationship_info(out_relationship);
+    }
+    if (runtime == nullptr) {
+        return make_error_result(OEP_ERROR_INVALID_ARGUMENT, category_for_code(OEP_ERROR_INVALID_ARGUMENT),
+                                  "runtime handle is null");
+    }
+    if (relationship_id == nullptr) {
+        return make_error_result(OEP_ERROR_INVALID_ARGUMENT, category_for_code(OEP_ERROR_INVALID_ARGUMENT),
+                                  "relationship_id is null");
+    }
+    try {
+        if (runtime->runtime.state() != oep::runtime::RuntimeState::RepositoryOpen) {
+            return make_error_result(OEP_ERROR_INVALID_STATE, category_for_code(OEP_ERROR_INVALID_STATE),
+                                      "no repository is currently open");
+        }
+        const oep::runtime::RuntimeRelationshipMutationResult result = runtime->runtime.update_relationship(
+            relationship_id, author != nullptr ? author : "", description != nullptr ? description : "");
+        if (!result.success) {
+            const oep_error_code_t code = classify_mutation_error(result.error);
+            return make_error_result(code, category_for_code(code), result.error);
+        }
+        if (out_relationship != nullptr) {
+            populate_relationship_info(result.relationship, out_relationship);
+        }
+        return make_success_result();
+    } catch (const std::exception& ex) {
+        if (out_relationship != nullptr) zero_relationship_info(out_relationship);
+        return make_error_result(OEP_ERROR_INTERNAL, category_for_code(OEP_ERROR_INTERNAL), ex.what());
+    } catch (...) {
+        if (out_relationship != nullptr) zero_relationship_info(out_relationship);
+        return make_error_result(OEP_ERROR_INTERNAL, category_for_code(OEP_ERROR_INTERNAL), "unknown internal error");
+    }
+}
+
+oep_result_t oep_relationship_delete(OEP_Runtime runtime, const char* relationship_id) {
+    if (runtime == nullptr) {
+        return make_error_result(OEP_ERROR_INVALID_ARGUMENT, category_for_code(OEP_ERROR_INVALID_ARGUMENT),
+                                  "runtime handle is null");
+    }
+    if (relationship_id == nullptr) {
+        return make_error_result(OEP_ERROR_INVALID_ARGUMENT, category_for_code(OEP_ERROR_INVALID_ARGUMENT),
+                                  "relationship_id is null");
+    }
+    try {
+        if (runtime->runtime.state() != oep::runtime::RuntimeState::RepositoryOpen) {
+            return make_error_result(OEP_ERROR_INVALID_STATE, category_for_code(OEP_ERROR_INVALID_STATE),
+                                      "no repository is currently open");
+        }
+        const oep::runtime::RuntimeResult result = runtime->runtime.delete_relationship(relationship_id);
+        if (!result.success) {
+            const oep_error_code_t code = classify_mutation_error(result.error);
+            return make_error_result(code, category_for_code(code), result.error);
+        }
+        return make_success_result();
+    } catch (const std::exception& ex) {
+        return make_error_result(OEP_ERROR_INTERNAL, category_for_code(OEP_ERROR_INTERNAL), ex.what());
+    } catch (...) {
+        return make_error_result(OEP_ERROR_INTERNAL, category_for_code(OEP_ERROR_INTERNAL), "unknown internal error");
+    }
+}
+
+oep_result_t oep_transaction_begin(OEP_Runtime runtime) {
+    if (runtime == nullptr) {
+        return make_error_result(OEP_ERROR_INVALID_ARGUMENT, category_for_code(OEP_ERROR_INVALID_ARGUMENT),
+                                  "runtime handle is null");
+    }
+    try {
+        if (runtime->runtime.state() != oep::runtime::RuntimeState::RepositoryOpen) {
+            return make_error_result(OEP_ERROR_INVALID_STATE, category_for_code(OEP_ERROR_INVALID_STATE),
+                                      "no repository is currently open");
+        }
+        if (runtime->runtime.transaction_active()) {
+            return make_error_result(OEP_ERROR_INVALID_STATE, category_for_code(OEP_ERROR_INVALID_STATE),
+                                      "a transaction is already active; nested transactions are not supported");
+        }
+        const oep::runtime::RuntimeResult result = runtime->runtime.begin_transaction();
+        if (!result.success) {
+            return make_error_result(OEP_ERROR_OPERATION_FAILED, category_for_code(OEP_ERROR_OPERATION_FAILED),
+                                      result.error);
+        }
+        return make_success_result();
+    } catch (const std::exception& ex) {
+        return make_error_result(OEP_ERROR_INTERNAL, category_for_code(OEP_ERROR_INTERNAL), ex.what());
+    } catch (...) {
+        return make_error_result(OEP_ERROR_INTERNAL, category_for_code(OEP_ERROR_INTERNAL), "unknown internal error");
+    }
+}
+
+oep_result_t oep_transaction_commit(OEP_Runtime runtime) {
+    if (runtime == nullptr) {
+        return make_error_result(OEP_ERROR_INVALID_ARGUMENT, category_for_code(OEP_ERROR_INVALID_ARGUMENT),
+                                  "runtime handle is null");
+    }
+    try {
+        if (runtime->runtime.state() != oep::runtime::RuntimeState::RepositoryOpen) {
+            return make_error_result(OEP_ERROR_INVALID_STATE, category_for_code(OEP_ERROR_INVALID_STATE),
+                                      "no repository is currently open");
+        }
+        if (!runtime->runtime.transaction_active()) {
+            return make_error_result(OEP_ERROR_INVALID_STATE, category_for_code(OEP_ERROR_INVALID_STATE),
+                                      "no transaction is currently active");
+        }
+        const oep::runtime::RuntimeResult result = runtime->runtime.commit_transaction();
+        if (!result.success) {
+            return make_error_result(OEP_ERROR_OPERATION_FAILED, category_for_code(OEP_ERROR_OPERATION_FAILED),
+                                      result.error);
+        }
+        return make_success_result();
+    } catch (const std::exception& ex) {
+        return make_error_result(OEP_ERROR_INTERNAL, category_for_code(OEP_ERROR_INTERNAL), ex.what());
+    } catch (...) {
+        return make_error_result(OEP_ERROR_INTERNAL, category_for_code(OEP_ERROR_INTERNAL), "unknown internal error");
+    }
+}
+
+oep_result_t oep_transaction_rollback(OEP_Runtime runtime) {
+    if (runtime == nullptr) {
+        return make_error_result(OEP_ERROR_INVALID_ARGUMENT, category_for_code(OEP_ERROR_INVALID_ARGUMENT),
+                                  "runtime handle is null");
+    }
+    try {
+        if (runtime->runtime.state() != oep::runtime::RuntimeState::RepositoryOpen) {
+            return make_error_result(OEP_ERROR_INVALID_STATE, category_for_code(OEP_ERROR_INVALID_STATE),
+                                      "no repository is currently open");
+        }
+        if (!runtime->runtime.transaction_active()) {
+            return make_error_result(OEP_ERROR_INVALID_STATE, category_for_code(OEP_ERROR_INVALID_STATE),
+                                      "no transaction is currently active");
+        }
+        const oep::runtime::RuntimeResult result = runtime->runtime.rollback_transaction();
+        if (!result.success) {
+            return make_error_result(OEP_ERROR_OPERATION_FAILED, category_for_code(OEP_ERROR_OPERATION_FAILED),
+                                      result.error);
+        }
+        return make_success_result();
+    } catch (const std::exception& ex) {
+        return make_error_result(OEP_ERROR_INTERNAL, category_for_code(OEP_ERROR_INTERNAL), ex.what());
+    } catch (...) {
+        return make_error_result(OEP_ERROR_INTERNAL, category_for_code(OEP_ERROR_INTERNAL), "unknown internal error");
+    }
+}
+
+int oep_transaction_is_active(OEP_Runtime runtime) {
+    if (runtime == nullptr) {
+        return 0;
+    }
+    try {
+        return runtime->runtime.transaction_active() ? 1 : 0;
+    } catch (...) {
+        return 0;
+    }
+}
+
+oep_result_t oep_batch_create_objects(OEP_Runtime runtime, const oep_object_create_spec_t* specs, int count,
+                                       oep_batch_create_objects_result_t* out_result) {
+    if (out_result != nullptr) {
+        zero_batch_create_objects_result(out_result);
+    }
+    if (runtime == nullptr) {
+        return make_error_result(OEP_ERROR_INVALID_ARGUMENT, category_for_code(OEP_ERROR_INVALID_ARGUMENT),
+                                  "runtime handle is null");
+    }
+    if (out_result == nullptr) {
+        return make_error_result(OEP_ERROR_INVALID_ARGUMENT, category_for_code(OEP_ERROR_INVALID_ARGUMENT),
+                                  "out_result is null");
+    }
+    if (count < 0) {
+        return make_error_result(OEP_ERROR_INVALID_ARGUMENT, category_for_code(OEP_ERROR_INVALID_ARGUMENT),
+                                  "count is negative");
+    }
+    if (count > 0 && specs == nullptr) {
+        return make_error_result(OEP_ERROR_INVALID_ARGUMENT, category_for_code(OEP_ERROR_INVALID_ARGUMENT),
+                                  "specs is null but count is nonzero");
+    }
+    try {
+        if (runtime->runtime.state() != oep::runtime::RuntimeState::RepositoryOpen) {
+            return make_error_result(OEP_ERROR_INVALID_STATE, category_for_code(OEP_ERROR_INVALID_STATE),
+                                      "no repository is currently open");
+        }
+
+        std::vector<oep::runtime::ObjectCreateSpec> internal_specs;
+        internal_specs.reserve(static_cast<std::size_t>(count));
+        for (int i = 0; i < count; ++i) {
+            if (specs[i].name == nullptr) {
+                return make_error_result(OEP_ERROR_INVALID_ARGUMENT, category_for_code(OEP_ERROR_INVALID_ARGUMENT),
+                                          "specs[" + std::to_string(i) + "].name is null");
+            }
+            const std::optional<oep::repository::ObjectType> internal_type =
+                from_capi_object_type(specs[i].object_type);
+            if (!internal_type.has_value()) {
+                return make_error_result(OEP_ERROR_INVALID_ARGUMENT, category_for_code(OEP_ERROR_INVALID_ARGUMENT),
+                                          "specs[" + std::to_string(i) + "].object_type is unrecognized");
+            }
+            if (specs[i].tag_count < 0) {
+                return make_error_result(OEP_ERROR_INVALID_ARGUMENT, category_for_code(OEP_ERROR_INVALID_ARGUMENT),
+                                          "specs[" + std::to_string(i) + "].tag_count is negative");
+            }
+            if (specs[i].tag_count > 0 && specs[i].tags == nullptr) {
+                return make_error_result(
+                    OEP_ERROR_INVALID_ARGUMENT, category_for_code(OEP_ERROR_INVALID_ARGUMENT),
+                    "specs[" + std::to_string(i) + "].tags is null but tag_count is nonzero");
+            }
+
+            oep::runtime::ObjectCreateSpec internal_spec;
+            internal_spec.object_type = *internal_type;
+            internal_spec.name = specs[i].name;
+            internal_spec.description = specs[i].description != nullptr ? specs[i].description : "";
+            internal_spec.author = specs[i].author != nullptr ? specs[i].author : "";
+            internal_spec.tags = tags_from_capi(specs[i].tags, specs[i].tag_count);
+            internal_specs.push_back(std::move(internal_spec));
+        }
+
+        const oep::runtime::RuntimeBatchCreateObjectsResult result =
+            runtime->runtime.batch_create_objects(internal_specs);
+        if (!result.success) {
+            const oep_error_code_t code = classify_mutation_error(result.error);
+            oep_result_t error_result = make_error_result(code, category_for_code(code), result.error);
+            out_result->failed_index = result.failed_index;
+            return error_result;
+        }
+
+        const int created_count = static_cast<int>(result.created.size());
+        oep_object_info_t* items =
+            created_count > 0 ? new oep_object_info_t[static_cast<std::size_t>(created_count)] : nullptr;
+        for (int i = 0; i < created_count; ++i) {
+            populate_object_info(result.created[static_cast<std::size_t>(i)], &items[i]);
+        }
+        out_result->success = 1;
+        out_result->failed_index = -1;
+        out_result->created.items = items;
+        out_result->created.count = created_count;
+        return make_success_result();
+    } catch (const std::exception& ex) {
+        zero_batch_create_objects_result(out_result);
+        return make_error_result(OEP_ERROR_INTERNAL, category_for_code(OEP_ERROR_INTERNAL), ex.what());
+    } catch (...) {
+        zero_batch_create_objects_result(out_result);
+        return make_error_result(OEP_ERROR_INTERNAL, category_for_code(OEP_ERROR_INTERNAL), "unknown internal error");
+    }
+}
+
+void oep_batch_create_objects_result_release(oep_batch_create_objects_result_t* result) {
+    if (result == nullptr) {
+        return;
+    }
+    delete[] result->created.items;
+    result->created.items = nullptr;
+    result->created.count = 0;
+}
+
+oep_result_t oep_batch_create_relationships(OEP_Runtime runtime, const oep_relationship_create_spec_t* specs,
+                                             int count, oep_batch_create_relationships_result_t* out_result) {
+    if (out_result != nullptr) {
+        zero_batch_create_relationships_result(out_result);
+    }
+    if (runtime == nullptr) {
+        return make_error_result(OEP_ERROR_INVALID_ARGUMENT, category_for_code(OEP_ERROR_INVALID_ARGUMENT),
+                                  "runtime handle is null");
+    }
+    if (out_result == nullptr) {
+        return make_error_result(OEP_ERROR_INVALID_ARGUMENT, category_for_code(OEP_ERROR_INVALID_ARGUMENT),
+                                  "out_result is null");
+    }
+    if (count < 0) {
+        return make_error_result(OEP_ERROR_INVALID_ARGUMENT, category_for_code(OEP_ERROR_INVALID_ARGUMENT),
+                                  "count is negative");
+    }
+    if (count > 0 && specs == nullptr) {
+        return make_error_result(OEP_ERROR_INVALID_ARGUMENT, category_for_code(OEP_ERROR_INVALID_ARGUMENT),
+                                  "specs is null but count is nonzero");
+    }
+    try {
+        if (runtime->runtime.state() != oep::runtime::RuntimeState::RepositoryOpen) {
+            return make_error_result(OEP_ERROR_INVALID_STATE, category_for_code(OEP_ERROR_INVALID_STATE),
+                                      "no repository is currently open");
+        }
+
+        std::vector<oep::runtime::RelationshipCreateSpec> internal_specs;
+        internal_specs.reserve(static_cast<std::size_t>(count));
+        for (int i = 0; i < count; ++i) {
+            if (specs[i].source_object_id == nullptr) {
+                return make_error_result(
+                    OEP_ERROR_INVALID_ARGUMENT, category_for_code(OEP_ERROR_INVALID_ARGUMENT),
+                    "specs[" + std::to_string(i) + "].source_object_id is null");
+            }
+            if (specs[i].target_object_id == nullptr) {
+                return make_error_result(
+                    OEP_ERROR_INVALID_ARGUMENT, category_for_code(OEP_ERROR_INVALID_ARGUMENT),
+                    "specs[" + std::to_string(i) + "].target_object_id is null");
+            }
+            const std::optional<oep::repository::RelationshipType> internal_type =
+                from_capi_relationship_type(specs[i].relationship_type);
+            if (!internal_type.has_value()) {
+                return make_error_result(
+                    OEP_ERROR_INVALID_ARGUMENT, category_for_code(OEP_ERROR_INVALID_ARGUMENT),
+                    "specs[" + std::to_string(i) + "].relationship_type is unrecognized");
+            }
+
+            oep::runtime::RelationshipCreateSpec internal_spec;
+            internal_spec.source_object_id = specs[i].source_object_id;
+            internal_spec.target_object_id = specs[i].target_object_id;
+            internal_spec.relationship_type = *internal_type;
+            internal_spec.author = specs[i].author != nullptr ? specs[i].author : "";
+            internal_spec.description = specs[i].description != nullptr ? specs[i].description : "";
+            internal_specs.push_back(std::move(internal_spec));
+        }
+
+        const oep::runtime::RuntimeBatchCreateRelationshipsResult result =
+            runtime->runtime.batch_create_relationships(internal_specs);
+        if (!result.success) {
+            const oep_error_code_t code = classify_mutation_error(result.error);
+            oep_result_t error_result = make_error_result(code, category_for_code(code), result.error);
+            out_result->failed_index = result.failed_index;
+            return error_result;
+        }
+
+        const int created_count = static_cast<int>(result.created.size());
+        oep_relationship_info_t* items =
+            created_count > 0 ? new oep_relationship_info_t[static_cast<std::size_t>(created_count)] : nullptr;
+        for (int i = 0; i < created_count; ++i) {
+            populate_relationship_info(result.created[static_cast<std::size_t>(i)], &items[i]);
+        }
+        out_result->success = 1;
+        out_result->failed_index = -1;
+        out_result->created.items = items;
+        out_result->created.count = created_count;
+        return make_success_result();
+    } catch (const std::exception& ex) {
+        zero_batch_create_relationships_result(out_result);
+        return make_error_result(OEP_ERROR_INTERNAL, category_for_code(OEP_ERROR_INTERNAL), ex.what());
+    } catch (...) {
+        zero_batch_create_relationships_result(out_result);
+        return make_error_result(OEP_ERROR_INTERNAL, category_for_code(OEP_ERROR_INTERNAL), "unknown internal error");
+    }
+}
+
+void oep_batch_create_relationships_result_release(oep_batch_create_relationships_result_t* result) {
+    if (result == nullptr) {
+        return;
+    }
+    delete[] result->created.items;
+    result->created.items = nullptr;
+    result->created.count = 0;
 }
 
 } // extern "C"

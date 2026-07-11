@@ -579,6 +579,384 @@ void test_search_requires_open_repository() {
     oep_runtime_destroy(runtime);
 }
 
+// ---------------------------------------------------------------------
+// Work Package 014: Object Mutation, Relationship Mutation,
+// Transactions, Batch Mutation.
+// ---------------------------------------------------------------------
+
+void test_object_create_update_delete(const std::filesystem::path& scratch_dir) {
+    const std::filesystem::path root = build_repository(scratch_dir / "object-mutation");
+
+    OEP_Runtime runtime = oep_runtime_create("0.1.0");
+    oep_runtime_initialize(runtime);
+    oep_runtime_open_repository(runtime, root.string().c_str());
+
+    const char* tags[2] = {"electrical", "ignition"};
+    oep_object_info_t created;
+    const oep_result_t create_result =
+        oep_object_create(runtime, OEP_OBJECT_TYPE_COMPONENT, "Ignition Coil", "Generates spark", "Jane", tags, 2,
+                           &created);
+    check(create_result.success, "oep_object_create succeeds for a valid Component");
+    check(std::strlen(created.object_id) == 36, "the created object has a generated object_id");
+    check(std::string(created.name) == "Ignition Coil", "the created object reports the given name");
+    check(created.object_type == OEP_OBJECT_TYPE_COMPONENT, "the created object reports the given type");
+    check(created.tag_count == 2, "the created object reports both tags");
+
+    oep_object_info_t null_name_result;
+    const oep_result_t null_name = oep_object_create(runtime, OEP_OBJECT_TYPE_DOCUMENT, nullptr, "", "", nullptr, 0,
+                                                       &null_name_result);
+    check(!null_name.success && null_name.error_code == OEP_ERROR_INVALID_ARGUMENT,
+          "oep_object_create fails with OEP_ERROR_INVALID_ARGUMENT for a NULL name");
+
+    oep_object_info_t empty_name_result;
+    const oep_result_t empty_name =
+        oep_object_create(runtime, OEP_OBJECT_TYPE_DOCUMENT, "", "", "", nullptr, 0, &empty_name_result);
+    check(!empty_name.success && empty_name.error_code == OEP_ERROR_INVALID_ARGUMENT,
+          "oep_object_create fails for an empty name via Foundation's own validation");
+
+    oep_object_info_t updated;
+    const oep_result_t update_result =
+        oep_object_update(runtime, created.object_id, "Ignition Coil (Rev B)", "Updated", "Jane Doe", nullptr, 0,
+                           &updated);
+    check(update_result.success, "oep_object_update succeeds");
+    check(std::string(updated.name) == "Ignition Coil (Rev B)", "the updated object reports the new name");
+    check(std::string(updated.object_id) == std::string(created.object_id), "the updated object keeps its object_id");
+    check(updated.object_type == OEP_OBJECT_TYPE_COMPONENT, "the updated object keeps its original object_type");
+    check(updated.tag_count == 0, "the updated object reflects the new (empty) tag list");
+
+    oep_object_info_t missing_update;
+    const oep_result_t missing_update_result = oep_object_update(
+        runtime, "00000000-0000-4000-8000-000000000000", "X", "", "", nullptr, 0, &missing_update);
+    check(!missing_update_result.success && missing_update_result.error_code == OEP_ERROR_NOT_FOUND,
+          "oep_object_update fails with OEP_ERROR_NOT_FOUND for a nonexistent object_id");
+
+    const oep_result_t delete_result = oep_object_delete(runtime, created.object_id);
+    check(delete_result.success, "oep_object_delete succeeds");
+
+    const oep_result_t double_delete_result = oep_object_delete(runtime, created.object_id);
+    check(!double_delete_result.success && double_delete_result.error_code == OEP_ERROR_NOT_FOUND,
+          "deleting the same object twice fails with OEP_ERROR_NOT_FOUND");
+
+    const oep_result_t null_object_id_result = oep_object_delete(runtime, nullptr);
+    check(!null_object_id_result.success && null_object_id_result.error_code == OEP_ERROR_INVALID_ARGUMENT,
+          "oep_object_delete fails with OEP_ERROR_INVALID_ARGUMENT for a NULL object_id");
+
+    oep_runtime_destroy(runtime);
+}
+
+void test_object_mutation_requires_open_repository() {
+    OEP_Runtime runtime = oep_runtime_create("0.1.0");
+    oep_runtime_initialize(runtime);
+
+    oep_object_info_t out_object;
+    const oep_result_t create_result =
+        oep_object_create(runtime, OEP_OBJECT_TYPE_DOCUMENT, "X", "", "", nullptr, 0, &out_object);
+    check(!create_result.success && create_result.error_code == OEP_ERROR_INVALID_STATE,
+          "oep_object_create fails with OEP_ERROR_INVALID_STATE without an open repository");
+
+    const oep_result_t delete_result = oep_object_delete(runtime, "00000000-0000-4000-8000-000000000000");
+    check(!delete_result.success && delete_result.error_code == OEP_ERROR_INVALID_STATE,
+          "oep_object_delete fails with OEP_ERROR_INVALID_STATE without an open repository");
+
+    oep_runtime_destroy(runtime);
+}
+
+void test_relationship_create_update_delete(const std::filesystem::path& scratch_dir) {
+    const std::filesystem::path root = build_populated_repository(scratch_dir / "relationship-mutation");
+
+    OEP_Runtime runtime = oep_runtime_create("0.1.0");
+    oep_runtime_initialize(runtime);
+    oep_runtime_open_repository(runtime, root.string().c_str());
+
+    oep_object_list_t objects;
+    oep_object_store_list(runtime, &objects);
+    check(objects.count == 2, "the fixture repository has exactly two objects for relationship mutation tests");
+    const std::string source_id = objects.count == 2 ? objects.items[0].object_id : "";
+    const std::string target_id = objects.count == 2 ? objects.items[1].object_id : "";
+    oep_object_list_release(&objects);
+
+    oep_relationship_info_t created;
+    const oep_result_t create_result =
+        oep_relationship_create(runtime, source_id.c_str(), target_id.c_str(), OEP_RELATIONSHIP_TYPE_CONTAINS,
+                                 "Jane", "a new relationship", &created);
+    check(create_result.success, "oep_relationship_create succeeds for two existing objects");
+    check(std::strlen(created.relationship_id) == 36, "the created relationship has a generated relationship_id");
+    check(created.relationship_type == OEP_RELATIONSHIP_TYPE_CONTAINS, "the created relationship reports the given type");
+
+    oep_relationship_info_t missing_source_result;
+    const oep_result_t missing_source = oep_relationship_create(
+        runtime, "00000000-0000-4000-8000-000000000000", target_id.c_str(), OEP_RELATIONSHIP_TYPE_REFERENCES, "", "",
+        &missing_source_result);
+    check(!missing_source.success && missing_source.error_code == OEP_ERROR_NOT_FOUND,
+          "oep_relationship_create fails with OEP_ERROR_NOT_FOUND for a nonexistent source object");
+
+    oep_relationship_info_t updated;
+    const oep_result_t update_result =
+        oep_relationship_update(runtime, created.relationship_id, "Jane Doe", "revised description", &updated);
+    check(update_result.success, "oep_relationship_update succeeds");
+    check(std::string(updated.author) == "Jane Doe", "the updated relationship reports the new author");
+    check(updated.relationship_type == OEP_RELATIONSHIP_TYPE_CONTAINS,
+          "the updated relationship keeps its original relationship_type");
+    check(std::string(updated.source_object_id) == source_id,
+          "the updated relationship keeps its original source_object_id");
+
+    oep_relationship_info_t missing_update;
+    const oep_result_t missing_update_result = oep_relationship_update(
+        runtime, "00000000-0000-4000-8000-000000000000", "", "", &missing_update);
+    check(!missing_update_result.success && missing_update_result.error_code == OEP_ERROR_NOT_FOUND,
+          "oep_relationship_update fails with OEP_ERROR_NOT_FOUND for a nonexistent relationship_id");
+
+    const oep_result_t delete_result = oep_relationship_delete(runtime, created.relationship_id);
+    check(delete_result.success, "oep_relationship_delete succeeds");
+
+    const oep_result_t double_delete_result = oep_relationship_delete(runtime, created.relationship_id);
+    check(!double_delete_result.success && double_delete_result.error_code == OEP_ERROR_NOT_FOUND,
+          "deleting the same relationship twice fails with OEP_ERROR_NOT_FOUND");
+
+    oep_runtime_destroy(runtime);
+}
+
+void test_transaction_commit(const std::filesystem::path& scratch_dir) {
+    const std::filesystem::path root = build_repository(scratch_dir / "transaction-commit");
+
+    OEP_Runtime runtime = oep_runtime_create("0.1.0");
+    oep_runtime_initialize(runtime);
+    oep_runtime_open_repository(runtime, root.string().c_str());
+
+    check(!oep_transaction_is_active(runtime), "no transaction is active initially");
+
+    const oep_result_t begin_result = oep_transaction_begin(runtime);
+    check(begin_result.success, "oep_transaction_begin succeeds from RepositoryOpen");
+    check(oep_transaction_is_active(runtime), "the transaction reports active after begin");
+
+    const oep_result_t nested_begin_result = oep_transaction_begin(runtime);
+    check(!nested_begin_result.success && nested_begin_result.error_code == OEP_ERROR_INVALID_STATE,
+          "a nested oep_transaction_begin fails with OEP_ERROR_INVALID_STATE");
+
+    oep_object_info_t created;
+    oep_object_create(runtime, OEP_OBJECT_TYPE_DOCUMENT, "Committed Object", "", "", nullptr, 0, &created);
+
+    const oep_result_t commit_result = oep_transaction_commit(runtime);
+    check(commit_result.success, "oep_transaction_commit succeeds");
+    check(!oep_transaction_is_active(runtime), "the transaction reports inactive after commit");
+
+    oep_object_info_t looked_up;
+    const oep_result_t lookup_result = oep_object_store_get_by_id(runtime, created.object_id, &looked_up);
+    check(lookup_result.success, "the committed object still exists after commit");
+
+    const oep_result_t commit_again_result = oep_transaction_commit(runtime);
+    check(!commit_again_result.success && commit_again_result.error_code == OEP_ERROR_INVALID_STATE,
+          "committing with no active transaction fails with OEP_ERROR_INVALID_STATE");
+
+    oep_runtime_destroy(runtime);
+}
+
+void test_transaction_rollback(const std::filesystem::path& scratch_dir) {
+    const std::filesystem::path root = build_repository(scratch_dir / "transaction-rollback");
+
+    OEP_Runtime runtime = oep_runtime_create("0.1.0");
+    oep_runtime_initialize(runtime);
+    oep_runtime_open_repository(runtime, root.string().c_str());
+
+    oep_object_info_t survivor;
+    oep_object_create(runtime, OEP_OBJECT_TYPE_DOCUMENT, "Survivor", "", "", nullptr, 0, &survivor);
+
+    oep_transaction_begin(runtime);
+
+    oep_object_info_t doomed_object;
+    const oep_result_t create_result =
+        oep_object_create(runtime, OEP_OBJECT_TYPE_DOCUMENT, "Doomed", "", "", nullptr, 0, &doomed_object);
+    check(create_result.success, "create inside a transaction succeeds and is visible immediately");
+
+    oep_object_info_t updated_survivor;
+    oep_object_update(runtime, survivor.object_id, "Survivor (Modified)", "", "", nullptr, 0, &updated_survivor);
+
+    const oep_result_t rollback_result = oep_transaction_rollback(runtime);
+    check(rollback_result.success, "oep_transaction_rollback succeeds");
+    check(!oep_transaction_is_active(runtime), "the transaction reports inactive after rollback");
+
+    oep_object_info_t missing_doomed;
+    const oep_result_t doomed_lookup = oep_object_store_get_by_id(runtime, doomed_object.object_id, &missing_doomed);
+    check(!doomed_lookup.success && doomed_lookup.error_code == OEP_ERROR_NOT_FOUND,
+          "the object created inside the rolled-back transaction no longer exists");
+
+    oep_object_info_t restored_survivor;
+    const oep_result_t survivor_lookup =
+        oep_object_store_get_by_id(runtime, survivor.object_id, &restored_survivor);
+    check(survivor_lookup.success && std::string(restored_survivor.name) == "Survivor",
+          "the object updated inside the rolled-back transaction is restored to its pre-transaction name");
+
+    const oep_result_t rollback_again_result = oep_transaction_rollback(runtime);
+    check(!rollback_again_result.success && rollback_again_result.error_code == OEP_ERROR_INVALID_STATE,
+          "rolling back with no active transaction fails with OEP_ERROR_INVALID_STATE");
+
+    oep_runtime_destroy(runtime);
+}
+
+void test_transaction_automatic_rollback_on_failure(const std::filesystem::path& scratch_dir) {
+    const std::filesystem::path root = build_repository(scratch_dir / "transaction-auto-rollback");
+
+    OEP_Runtime runtime = oep_runtime_create("0.1.0");
+    oep_runtime_initialize(runtime);
+    oep_runtime_open_repository(runtime, root.string().c_str());
+
+    oep_transaction_begin(runtime);
+
+    oep_object_info_t first;
+    oep_object_create(runtime, OEP_OBJECT_TYPE_DOCUMENT, "First", "", "", nullptr, 0, &first);
+
+    oep_object_info_t failed;
+    const oep_result_t failing_create =
+        oep_object_create(runtime, OEP_OBJECT_TYPE_DOCUMENT, "", "", "", nullptr, 0, &failed);
+    check(!failing_create.success, "a create with an invalid empty name fails inside the transaction");
+    check(!oep_transaction_is_active(runtime),
+          "the transaction is automatically deactivated after the failure, per TASK-000029");
+
+    oep_object_info_t missing_first;
+    const oep_result_t first_lookup = oep_object_store_get_by_id(runtime, first.object_id, &missing_first);
+    check(!first_lookup.success && first_lookup.error_code == OEP_ERROR_NOT_FOUND,
+          "the successful create earlier in the transaction was automatically rolled back too");
+
+    int count = -1;
+    oep_object_store_get_count(runtime, &count);
+    check(count == 0, "the repository has zero objects after the automatic rollback");
+
+    oep_runtime_destroy(runtime);
+}
+
+void test_transaction_requires_open_repository() {
+    OEP_Runtime runtime = oep_runtime_create("0.1.0");
+    oep_runtime_initialize(runtime);
+
+    const oep_result_t begin_result = oep_transaction_begin(runtime);
+    check(!begin_result.success && begin_result.error_code == OEP_ERROR_INVALID_STATE,
+          "oep_transaction_begin fails with OEP_ERROR_INVALID_STATE without an open repository");
+    check(!oep_transaction_is_active(runtime), "oep_transaction_is_active(NULL-state runtime) reports inactive");
+
+    oep_runtime_destroy(runtime);
+}
+
+void test_batch_create_objects(const std::filesystem::path& scratch_dir) {
+    const std::filesystem::path root = build_repository(scratch_dir / "batch-create-objects");
+
+    OEP_Runtime runtime = oep_runtime_create("0.1.0");
+    oep_runtime_initialize(runtime);
+    oep_runtime_open_repository(runtime, root.string().c_str());
+
+    oep_object_create_spec_t specs[3];
+    specs[0] = {OEP_OBJECT_TYPE_DOCUMENT, "Batch A", "", "", nullptr, 0};
+    specs[1] = {OEP_OBJECT_TYPE_COMPONENT, "Batch B", "", "", nullptr, 0};
+    specs[2] = {OEP_OBJECT_TYPE_DOCUMENT, "Batch C", "", "", nullptr, 0};
+
+    oep_batch_create_objects_result_t result;
+    const oep_result_t call_result = oep_batch_create_objects(runtime, specs, 3, &result);
+    check(call_result.success, "oep_batch_create_objects succeeds for three valid specs");
+    check(result.success != 0, "the batch result itself reports success");
+    check(result.failed_index == -1, "failed_index is -1 on a fully successful batch");
+    check(result.created.count == 3, "three objects were created");
+    check(std::string(result.created.items[0].name) == "Batch A",
+          "the created list preserves execution order (index 0)");
+    check(std::string(result.created.items[1].name) == "Batch B",
+          "the created list preserves execution order (index 1)");
+    check(std::string(result.created.items[2].name) == "Batch C",
+          "the created list preserves execution order (index 2)");
+    oep_batch_create_objects_result_release(&result);
+    check(result.created.items == nullptr, "oep_batch_create_objects_result_release zeroes the created list");
+
+    int count = -1;
+    oep_object_store_get_count(runtime, &count);
+    check(count == 3, "all three batch-created objects are persisted");
+
+    oep_runtime_destroy(runtime);
+}
+
+void test_batch_create_objects_rolls_back_on_failure(const std::filesystem::path& scratch_dir) {
+    const std::filesystem::path root = build_repository(scratch_dir / "batch-create-objects-failure");
+
+    OEP_Runtime runtime = oep_runtime_create("0.1.0");
+    oep_runtime_initialize(runtime);
+    oep_runtime_open_repository(runtime, root.string().c_str());
+
+    oep_object_create_spec_t specs[3];
+    specs[0] = {OEP_OBJECT_TYPE_DOCUMENT, "Should Not Survive 1", "", "", nullptr, 0};
+    specs[1] = {OEP_OBJECT_TYPE_DOCUMENT, "", "", "", nullptr, 0}; // invalid: empty name
+    specs[2] = {OEP_OBJECT_TYPE_DOCUMENT, "Should Not Survive 3", "", "", nullptr, 0};
+
+    oep_batch_create_objects_result_t result;
+    const oep_result_t call_result = oep_batch_create_objects(runtime, specs, 3, &result);
+    check(!call_result.success, "oep_batch_create_objects fails when one spec is invalid");
+    check(result.failed_index == 1, "failed_index identifies the second (0-based) spec");
+    check(result.created.count == 0, "the created list is empty — the whole batch was rolled back");
+
+    int count = -1;
+    oep_object_store_get_count(runtime, &count);
+    check(count == 0, "no objects were persisted after the failed batch rolled back");
+
+    oep_runtime_destroy(runtime);
+}
+
+void test_batch_create_relationships(const std::filesystem::path& scratch_dir) {
+    const std::filesystem::path root = build_populated_repository(scratch_dir / "batch-create-relationships");
+
+    OEP_Runtime runtime = oep_runtime_create("0.1.0");
+    oep_runtime_initialize(runtime);
+    oep_runtime_open_repository(runtime, root.string().c_str());
+
+    oep_object_list_t objects;
+    oep_object_store_list(runtime, &objects);
+    check(objects.count == 2, "the fixture repository has exactly two objects for batch relationship tests");
+    const std::string source_id = objects.count == 2 ? objects.items[0].object_id : "";
+    const std::string target_id = objects.count == 2 ? objects.items[1].object_id : "";
+    oep_object_list_release(&objects);
+
+    oep_relationship_create_spec_t specs[2];
+    specs[0] = {source_id.c_str(), target_id.c_str(), OEP_RELATIONSHIP_TYPE_REFERENCES, "Jane", "first"};
+    specs[1] = {target_id.c_str(), source_id.c_str(), OEP_RELATIONSHIP_TYPE_CONNECTED_TO, "Jane", "second"};
+
+    oep_batch_create_relationships_result_t result;
+    const oep_result_t call_result = oep_batch_create_relationships(runtime, specs, 2, &result);
+    check(call_result.success, "oep_batch_create_relationships succeeds for two valid specs");
+    check(result.created.count == 2, "two relationships were created");
+    oep_batch_create_relationships_result_release(&result);
+    check(result.created.items == nullptr, "oep_batch_create_relationships_result_release zeroes the created list");
+
+    int count = -1;
+    oep_relationship_store_get_count(runtime, &count);
+    check(count == 3, "both batch-created relationships are persisted alongside the fixture's existing one");
+
+    oep_runtime_destroy(runtime);
+}
+
+void test_batch_participates_in_caller_transaction(const std::filesystem::path& scratch_dir) {
+    const std::filesystem::path root = build_repository(scratch_dir / "batch-caller-transaction");
+
+    OEP_Runtime runtime = oep_runtime_create("0.1.0");
+    oep_runtime_initialize(runtime);
+    oep_runtime_open_repository(runtime, root.string().c_str());
+
+    oep_transaction_begin(runtime);
+
+    oep_object_info_t manual_object;
+    oep_object_create(runtime, OEP_OBJECT_TYPE_DOCUMENT, "Manually Created", "", "", nullptr, 0, &manual_object);
+
+    oep_object_create_spec_t specs[1] = {{OEP_OBJECT_TYPE_DOCUMENT, "Batch Item", "", "", nullptr, 0}};
+    oep_batch_create_objects_result_t batch_result;
+    oep_batch_create_objects(runtime, specs, 1, &batch_result);
+
+    check(oep_transaction_is_active(runtime) != 0,
+          "the transaction the caller began is still active after a successful batch participates in it");
+
+    const oep_result_t rollback_result = oep_transaction_rollback(runtime);
+    check(rollback_result.success, "rolling back the caller's transaction succeeds");
+
+    int count = -1;
+    oep_object_store_get_count(runtime, &count);
+    check(count == 0,
+          "rolling back the caller's transaction undoes both the manual create and the batch create together");
+
+    oep_runtime_destroy(runtime);
+}
+
 void test_destroy_closes_an_open_repository(const std::filesystem::path& scratch_dir) {
     const std::filesystem::path root = build_repository(scratch_dir / "destroy-open");
 
@@ -623,6 +1001,17 @@ int main() {
     test_search_relationships(scratch_dir);
     test_search_repository(scratch_dir);
     test_search_requires_open_repository();
+    test_object_create_update_delete(scratch_dir);
+    test_object_mutation_requires_open_repository();
+    test_relationship_create_update_delete(scratch_dir);
+    test_transaction_commit(scratch_dir);
+    test_transaction_rollback(scratch_dir);
+    test_transaction_automatic_rollback_on_failure(scratch_dir);
+    test_transaction_requires_open_repository();
+    test_batch_create_objects(scratch_dir);
+    test_batch_create_objects_rolls_back_on_failure(scratch_dir);
+    test_batch_create_relationships(scratch_dir);
+    test_batch_participates_in_caller_transaction(scratch_dir);
     test_destroy_closes_an_open_repository(scratch_dir);
 
     std::filesystem::remove_all(scratch_dir);

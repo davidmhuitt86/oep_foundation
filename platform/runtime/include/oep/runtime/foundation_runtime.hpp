@@ -111,6 +111,59 @@ struct RuntimeBatchValidateResult {
     std::vector<std::string> findings;
 };
 
+// Mutation results (Work Package 014). RuntimeResult (success/error only)
+// is reused for delete_object/delete_relationship and transaction
+// begin/commit/rollback, since none of those need to return a record.
+struct RuntimeObjectMutationResult {
+    bool success = false;
+    std::string error;
+    oep::repository::EngineeringObject object;
+};
+
+struct RuntimeRelationshipMutationResult {
+    bool success = false;
+    std::string error;
+    oep::repository::Relationship relationship;
+};
+
+// Input to batch_create_objects, per OEP-SPEC (Work Package 014,
+// TASK-000030). Mirrors the fields create_object accepts individually.
+struct ObjectCreateSpec {
+    oep::repository::ObjectType object_type = oep::repository::ObjectType::Document;
+    std::string name;
+    std::string description;
+    std::string author;
+    std::vector<std::string> tags;
+};
+
+// Input to batch_create_relationships. Mirrors the fields
+// create_relationship accepts individually.
+struct RelationshipCreateSpec {
+    std::string source_object_id;
+    std::string target_object_id;
+    oep::repository::RelationshipType relationship_type = oep::repository::RelationshipType::References;
+    std::string author;
+    std::string description;
+};
+
+struct RuntimeBatchCreateObjectsResult {
+    bool success = false;
+    std::string error;
+    // -1 on full success; otherwise the 0-based index into the input
+    // specs of the item that failed. On failure, `created` is always
+    // empty — the whole batch is rolled back, per TASK-000030's
+    // "Failures shall roll back the complete batch."
+    int failed_index = -1;
+    std::vector<oep::repository::EngineeringObject> created;
+};
+
+struct RuntimeBatchCreateRelationshipsResult {
+    bool success = false;
+    std::string error;
+    int failed_index = -1;
+    std::vector<oep::repository::Relationship> created;
+};
+
 // The single entry point through which applications interact with
 // Foundation. FoundationRuntime coordinates the Repository, Search,
 // Validation, and Package Manager subsystems; it never reimplements
@@ -206,6 +259,96 @@ public:
     // findings listed in `findings`.
     RuntimeBatchValidateResult validate_batch_create(const std::string& batch_json) const;
 
+    // ---------------------------------------------------------------
+    // Object and Relationship Mutation (Work Package 014)
+    // ---------------------------------------------------------------
+    //
+    // Every method below requires an open repository and delegates
+    // entirely to ObjectStore/RelationshipStore — no validation or
+    // persistence logic is duplicated here; Runtime only orchestrates
+    // which store method to call and, when a transaction is active,
+    // records enough information to undo the call on rollback.
+    //
+    // If a transaction is active and a mutation fails, the active
+    // transaction is automatically rolled back and deactivated before
+    // the failure is returned — per TASK-000029, "Failures shall:
+    // Abort transaction, Roll back changes." The caller does not need
+    // to call rollback_transaction() again in that case (doing so is
+    // safe but reports "no transaction is currently active").
+
+    RuntimeObjectMutationResult create_object(oep::repository::ObjectType object_type, const std::string& name,
+                                               const std::string& description, const std::string& author,
+                                               const std::vector<std::string>& tags);
+
+    // Replaces name/description/author/tags on the object identified
+    // by `object_id`; object_id, object_type, and created_utc are
+    // preserved, matching ObjectStore::update's own contract exactly
+    // (Runtime does not reimplement or extend it).
+    RuntimeObjectMutationResult update_object(const std::string& object_id, const std::string& name,
+                                               const std::string& description, const std::string& author,
+                                               const std::vector<std::string>& tags);
+
+    RuntimeResult delete_object(const std::string& object_id);
+
+    RuntimeRelationshipMutationResult create_relationship(const std::string& source_object_id,
+                                                            const std::string& target_object_id,
+                                                            oep::repository::RelationshipType relationship_type,
+                                                            const std::string& author, const std::string& description);
+
+    // Replaces author/description on the relationship identified by
+    // `relationship_id`; relationship_id, source/target object IDs,
+    // relationship_type, and created_utc are preserved, matching
+    // RelationshipStore::update's own contract exactly.
+    RuntimeRelationshipMutationResult update_relationship(const std::string& relationship_id,
+                                                            const std::string& author, const std::string& description);
+
+    RuntimeResult delete_relationship(const std::string& relationship_id);
+
+    // ---------------------------------------------------------------
+    // Transactions (Work Package 014, TASK-000029)
+    // ---------------------------------------------------------------
+    //
+    // A transaction groups the object/relationship mutations above
+    // into one deterministically reversible unit. Only one transaction
+    // may be active at a time (no nesting). Each mutation still writes
+    // to disk immediately, exactly as it would outside a transaction —
+    // ObjectStore/RelationshipStore have no concept of a staged,
+    // uncommitted write — but while a transaction is active, Runtime
+    // additionally records a compensating action for every successful
+    // mutation. commit_transaction() simply discards that log (the
+    // mutations are already persisted); rollback_transaction() replays
+    // the log in reverse, undoing each mutation via the same stores
+    // (remove() undoes a create, update() undoes an update by
+    // restoring the prior full record, restore() undoes a delete by
+    // restoring the prior full record with its original identity).
+    // This makes rollback deterministic without introducing a second,
+    // parallel persistence mechanism.
+    //
+    // Closing the repository (close_repository()/shutdown()) while a
+    // transaction is active automatically rolls it back first, so a
+    // repository is never left with a transaction stranded open.
+
+    RuntimeResult begin_transaction();
+    RuntimeResult commit_transaction();
+    RuntimeResult rollback_transaction();
+    bool transaction_active() const;
+
+    // ---------------------------------------------------------------
+    // Batch Mutation (Work Package 014, TASK-000030)
+    // ---------------------------------------------------------------
+    //
+    // Convenience wrappers over the transaction primitives above:
+    // creates every spec in array order (the deterministic execution
+    // order TASK-000030 requires) inside a transaction. If no
+    // transaction is active when called, one is begun and committed
+    // (or rolled back) automatically around the whole batch; if the
+    // caller already has a transaction active, the batch participates
+    // in it, and a failure rolls back everything in that transaction,
+    // not just the batch's own entries.
+
+    RuntimeBatchCreateObjectsResult batch_create_objects(const std::vector<ObjectCreateSpec>& specs);
+    RuntimeBatchCreateRelationshipsResult batch_create_relationships(const std::vector<RelationshipCreateSpec>& specs);
+
 private:
     RuntimeState state_ = RuntimeState::Uninitialized;
     std::string foundation_version_;
@@ -220,7 +363,34 @@ private:
     std::optional<oep::validation::RepositoryValidator> validator_;
     std::optional<oep::packages::PackageManager> packages_;
 
+    // A single compensating action recorded while a transaction is
+    // active, per mutation performed. Exactly one of object_snapshot /
+    // relationship_snapshot is meaningful for a given `kind`; which one
+    // is documented next to each Kind value below.
+    struct TransactionLogEntry {
+        enum class Kind {
+            ObjectCreated,        // undo: remove(object_snapshot.object_id)
+            ObjectUpdated,        // undo: update(object_snapshot) — the pre-update record
+            ObjectDeleted,        // undo: restore(object_snapshot) — the pre-delete record
+            RelationshipCreated,  // undo: remove(relationship_snapshot.relationship_id)
+            RelationshipUpdated,  // undo: update(relationship_snapshot) — the pre-update record
+            RelationshipDeleted,  // undo: restore(relationship_snapshot) — the pre-delete record
+        };
+        Kind kind;
+        oep::repository::EngineeringObject object_snapshot;
+        oep::repository::Relationship relationship_snapshot;
+    };
+
+    bool transaction_active_ = false;
+    std::vector<TransactionLogEntry> transaction_log_;
+
     void reset_repository_context();
+
+    // Undoes every recorded entry in transaction_log_, most recent
+    // first, then clears the log and deactivates the transaction.
+    // Assumes objects_/relationships_ are still valid (must be called
+    // before reset_repository_context() clears them, not after).
+    void rollback_transaction_internal();
 };
 
 } // namespace oep::runtime

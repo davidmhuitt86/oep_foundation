@@ -5,8 +5,10 @@
  * OEP Foundation Public C API
  * Per OEP-SPEC-021-PUBLIC_C_API, OEP-SPEC-022-FOUNDATION_BRIDGE_SUPPORT,
  * Work Package 012 (Engineering Object Enumeration, Repository
- * Statistics), and Work Package 013 (Engineering Relationship
- * Enumeration, Repository Search).
+ * Statistics), Work Package 013 (Engineering Relationship Enumeration,
+ * Repository Search), and Work Package 014 (Object Mutation,
+ * Relationship Mutation, Transactions, Batch Mutation — the first
+ * write-capable surface of this API).
  *
  * This is the only supported native interface into Foundation. It is a
  * pure C ABI: no C++ classes, no STL types, and no exceptions ever cross
@@ -28,7 +30,7 @@ extern "C" {
 
 /* The Public C API's own version. Incremented whenever a function or
    structure is added, changed, or removed. */
-#define OEP_API_VERSION 3
+#define OEP_API_VERSION 4
 
 /* The ABI version. Incremented only when a change would break binary
    compatibility with a previously compiled caller (e.g. a struct
@@ -497,6 +499,239 @@ oep_result_t oep_search_relationships(OEP_Runtime runtime, const char* query,
    Safe to call on a zero-initialized or already-released list, and
    safe to call with `list == NULL` (both no-ops). */
 void oep_relationship_search_result_list_release(oep_relationship_search_result_list_t* list);
+
+/* ------------------------------------------------------------------ */
+/* Object Mutation (Work Package 014, TASK-000027)                     */
+/* ------------------------------------------------------------------ */
+/*
+ * Every mutation function below delegates entirely to
+ * FoundationRuntime, which delegates entirely to ObjectStore/
+ * RelationshipStore — the Public API never manipulates a store
+ * directly and never re-implements a validation rule Foundation
+ * already enforces. In particular, `name`/`source_object_id`/
+ * `target_object_id` are only checked here for a NULL pointer (an ABI
+ * safety requirement); an empty or otherwise invalid value is left to
+ * fail Foundation's own validation, so the same rule is enforced in
+ * exactly one place.
+ *
+ * If a transaction is active (see "Transactions" below) and a
+ * mutation fails, the active transaction is automatically rolled back
+ * and deactivated before the failure is returned.
+ */
+
+/* Creates a new Engineering Object. `name` must not be NULL (an empty
+   name still fails, via Foundation's own validation, with
+   OEP_ERROR_INVALID_ARGUMENT). `description`/`author` may be NULL,
+   treated as empty. `tags` may be NULL iff `tag_count` is 0;
+   otherwise `tags` must point to `tag_count` NUL-terminated strings
+   (individual entries may not be NULL). Unlike oep_object_info_t's
+   fixed-size `tags` field, there is no cap on how many tags may be
+   supplied here — a tag list longer than OEP_MAX_OBJECT_TAGS is
+   accepted and stored in full; only reading it back out through a
+   fixed oep_object_info_t truncates it.
+
+   Only valid from RepositoryOpen; fails with OEP_ERROR_INVALID_STATE
+   otherwise. On success, `out_object` (if non-NULL) is populated with
+   the created object, including its generated object_id. */
+oep_result_t oep_object_create(OEP_Runtime runtime, oep_object_type_t object_type, const char* name,
+                                const char* description, const char* author, const char* const* tags, int tag_count,
+                                oep_object_info_t* out_object);
+
+/* Replaces name/description/author/tags on the object identified by
+   `object_id`. object_id, object_type, and the object's created
+   timestamp are never changed — matching ObjectStore::update's own
+   contract exactly, since object_type is immutable throughout
+   Foundation's Engineering Object model. Fails with
+   OEP_ERROR_NOT_FOUND if no object with `object_id` exists. Argument
+   rules for name/description/author/tags/tag_count are the same as
+   oep_object_create. */
+oep_result_t oep_object_update(OEP_Runtime runtime, const char* object_id, const char* name, const char* description,
+                                const char* author, const char* const* tags, int tag_count,
+                                oep_object_info_t* out_object);
+
+/* Deletes the Engineering Object identified by `object_id`. Fails
+   with OEP_ERROR_NOT_FOUND if no such object exists. Does not cascade
+   to Relationships referencing the deleted object — this mirrors
+   ObjectStore::remove's own existing behavior and is not a new
+   restriction introduced by this API. */
+oep_result_t oep_object_delete(OEP_Runtime runtime, const char* object_id);
+
+/* ------------------------------------------------------------------ */
+/* Relationship Mutation (Work Package 014, TASK-000028)               */
+/* ------------------------------------------------------------------ */
+
+/* Creates a new Relationship between two existing Engineering Objects.
+   `source_object_id`/`target_object_id` must not be NULL. Fails with
+   OEP_ERROR_NOT_FOUND if either referenced object does not exist, or
+   OEP_ERROR_INVALID_ARGUMENT if the relationship is otherwise invalid
+   (e.g. source equals target) — both checks are performed by
+   RelationshipStore::create itself, not duplicated here.
+   `author`/`description` may be NULL, treated as empty. Only valid
+   from RepositoryOpen. On success, `out_relationship` (if non-NULL)
+   is populated with the created relationship. */
+oep_result_t oep_relationship_create(OEP_Runtime runtime, const char* source_object_id,
+                                      const char* target_object_id, oep_relationship_type_t relationship_type,
+                                      const char* author, const char* description,
+                                      oep_relationship_info_t* out_relationship);
+
+/* Replaces author/description on the relationship identified by
+   `relationship_id`. relationship_id, source_object_id,
+   target_object_id, relationship_type, and the relationship's created
+   timestamp are never changed — matching RelationshipStore::update's
+   own contract exactly. Fails with OEP_ERROR_NOT_FOUND if no
+   relationship with `relationship_id` exists. */
+oep_result_t oep_relationship_update(OEP_Runtime runtime, const char* relationship_id, const char* author,
+                                      const char* description, oep_relationship_info_t* out_relationship);
+
+/* Deletes the Relationship identified by `relationship_id`. Fails
+   with OEP_ERROR_NOT_FOUND if no such relationship exists. */
+oep_result_t oep_relationship_delete(OEP_Runtime runtime, const char* relationship_id);
+
+/* ------------------------------------------------------------------ */
+/* Transactions (Work Package 014, TASK-000029)                        */
+/* ------------------------------------------------------------------ */
+/*
+ * A transaction groups object/relationship mutations into one
+ * deterministically reversible unit. Only one transaction may be
+ * active per OEP_Runtime handle at a time — nested
+ * oep_transaction_begin() calls fail with OEP_ERROR_INVALID_STATE
+ * rather than silently stacking.
+ *
+ * Each mutation still writes to the repository immediately when
+ * called (Foundation's stores have no staged/uncommitted write
+ * concept); while a transaction is active, Foundation additionally
+ * records what each successful mutation would need to undo it.
+ * oep_transaction_commit() discards that record (nothing further to
+ * do — every mutation already persisted). oep_transaction_rollback()
+ * replays the record in reverse, undoing each mutation via the same
+ * stores a normal mutation would use.
+ *
+ * If any object or relationship mutation function above fails while a
+ * transaction is active, Foundation automatically rolls back and
+ * deactivates the transaction before returning the failure — the
+ * caller does not need to (but safely may) call
+ * oep_transaction_rollback() afterward.
+ *
+ * Closing the repository or shutting down the Runtime while a
+ * transaction is active automatically rolls it back first.
+ */
+
+/* Begins a new transaction. Only valid from RepositoryOpen; fails
+   with OEP_ERROR_INVALID_STATE if no repository is open or a
+   transaction is already active. */
+oep_result_t oep_transaction_begin(OEP_Runtime runtime);
+
+/* Commits the active transaction (discarding its undo record; every
+   mutation within it is already persisted). Fails with
+   OEP_ERROR_INVALID_STATE if no transaction is currently active. */
+oep_result_t oep_transaction_commit(OEP_Runtime runtime);
+
+/* Rolls back the active transaction, undoing every mutation performed
+   since oep_transaction_begin() in reverse order. Fails with
+   OEP_ERROR_INVALID_STATE if no transaction is currently active. */
+oep_result_t oep_transaction_rollback(OEP_Runtime runtime);
+
+/* Returns nonzero iff a transaction is currently active on `runtime`.
+   Never fails; returns 0 if `runtime` is NULL. */
+int oep_transaction_is_active(OEP_Runtime runtime);
+
+/* ------------------------------------------------------------------ */
+/* Batch Mutation (Work Package 014, TASK-000030)                      */
+/* ------------------------------------------------------------------ */
+/*
+ * Batch mutation is a convenience over the transaction primitives
+ * above: every spec is created in array order (the deterministic
+ * execution order this section requires), inside a transaction. If no
+ * transaction is active when the batch function is called, one is
+ * begun and committed automatically around the whole batch; if the
+ * caller already has a transaction active, the batch participates in
+ * it. Any failure rolls back the complete batch (and, if the caller
+ * already had a transaction active going in, everything else in that
+ * transaction too — the transaction, not the batch call, is the unit
+ * of rollback).
+ *
+ * `specs`/`created` hold `const char*` fields, not fixed buffers:
+ * these are input-only structures the caller populates and Foundation
+ * only reads for the duration of the call — no ownership transfer,
+ * and still no STL/C++ types cross the boundary.
+ */
+
+/* One object to create as part of a batch. `name` must not be NULL;
+   `description`/`author` may be NULL (treated as empty); `tags` may
+   be NULL iff `tag_count` is 0. The caller retains ownership of every
+   pointer; Foundation only reads them for the duration of the
+   oep_batch_create_objects call. */
+typedef struct oep_object_create_spec_t {
+    oep_object_type_t object_type;
+    const char* name;
+    const char* description;
+    const char* author;
+    const char* const* tags;
+    int tag_count;
+} oep_object_create_spec_t;
+
+/* `created` is in execution order (the same order as the input
+   `specs` array) — it is deliberately NOT sorted by object_id the way
+   oep_object_store_list is, since preserving input/execution order is
+   exactly the determinism guarantee this section requires. On
+   failure, `created` is always empty (items = NULL, count = 0): the
+   whole batch was rolled back. */
+typedef struct oep_batch_create_objects_result_t {
+    int success;
+    /* -1 on full success; otherwise the 0-based index into the input
+       `specs` array of the item that failed. */
+    int failed_index;
+    oep_object_list_t created;
+} oep_batch_create_objects_result_t;
+
+/* Creates every object in `specs` (an array of `count` specs) in
+   order, inside a transaction (see "Batch Mutation" above for the
+   begin/commit/rollback semantics). Only valid from RepositoryOpen.
+   `specs` must not be NULL if `count` > 0. `out_result` must not be
+   NULL.
+
+   Ownership: on success, the caller owns `out_result->created.items`
+   and must release it with exactly one call to
+   oep_batch_create_objects_result_release. */
+oep_result_t oep_batch_create_objects(OEP_Runtime runtime, const oep_object_create_spec_t* specs, int count,
+                                       oep_batch_create_objects_result_t* out_result);
+
+/* Releases the heap array owned by `result->created` (if any) and
+   zeroes it. Safe to call on a zero-initialized or already-released
+   result, and safe to call with `result == NULL` (both no-ops). */
+void oep_batch_create_objects_result_release(oep_batch_create_objects_result_t* result);
+
+/* One relationship to create as part of a batch.
+   `source_object_id`/`target_object_id` must not be NULL;
+   `author`/`description` may be NULL (treated as empty). The caller
+   retains ownership of every pointer. */
+typedef struct oep_relationship_create_spec_t {
+    const char* source_object_id;
+    const char* target_object_id;
+    oep_relationship_type_t relationship_type;
+    const char* author;
+    const char* description;
+} oep_relationship_create_spec_t;
+
+/* Same execution-order and rollback-on-failure contract as
+   oep_batch_create_objects_result_t. */
+typedef struct oep_batch_create_relationships_result_t {
+    int success;
+    int failed_index;
+    oep_relationship_list_t created;
+} oep_batch_create_relationships_result_t;
+
+/* Creates every relationship in `specs` (an array of `count` specs)
+   in order, inside a transaction. Same semantics as
+   oep_batch_create_objects. Ownership: release with
+   oep_batch_create_relationships_result_release. */
+oep_result_t oep_batch_create_relationships(OEP_Runtime runtime, const oep_relationship_create_spec_t* specs,
+                                             int count, oep_batch_create_relationships_result_t* out_result);
+
+/* Releases the heap array owned by `result->created` (if any) and
+   zeroes it. Safe to call on a zero-initialized or already-released
+   result, and safe to call with `result == NULL` (both no-ops). */
+void oep_batch_create_relationships_result_release(oep_batch_create_relationships_result_t* result);
 
 #ifdef __cplusplus
 }

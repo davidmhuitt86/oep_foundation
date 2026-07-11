@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <cstring>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -58,5 +59,24 @@ void populate_object_search_result(const oep::search::ObjectSearchResult& result
                                     oep_object_search_result_t* out_result);
 void populate_relationship_search_result(const oep::search::RelationshipSearchResult& result,
                                           oep_relationship_search_result_t* out_result);
+
+// Reverse of to_capi_object_type/to_capi_relationship_type, for
+// mutation input (Work Package 014). Returns std::nullopt for a value
+// outside the declared enum range, so an out-of-range oep_object_type_t
+// / oep_relationship_type_t coming from a caller is rejected explicitly
+// rather than silently mapped to a default.
+std::optional<oep::repository::ObjectType> from_capi_object_type(oep_object_type_t type);
+std::optional<oep::repository::RelationshipType> from_capi_relationship_type(oep_relationship_type_t type);
+
+// Classifies a Foundation-provided error message (from
+// ObjectStore/RelationshipStore, via FoundationRuntime) into an
+// oep_error_code_t, by matching the small, stable set of message
+// substrings those stores actually produce. Used by every object/
+// relationship mutation wrapper so the classification logic lives in
+// exactly one place. Defaults to OEP_ERROR_OPERATION_FAILED for any
+// message that doesn't match a known pattern (e.g. a filesystem
+// error), consistent with oep_runtime_open_repository's existing
+// substring-based classification.
+oep_error_code_t classify_mutation_error(const std::string& message);
 
 } // namespace oep::api::detail
