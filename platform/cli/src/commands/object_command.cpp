@@ -90,14 +90,11 @@ int ObjectCommand::create(const std::vector<std::string>& args) const {
         return 1;
     }
 
-    oep::repository::EngineeringObject object;
-    object.object_type = *object_type;
-    object.name = object_name;
-    object.description = description;
-    object.author = author;
-    object.tags = split_csv(tags_csv);
-
-    const oep::repository::LoadObjectResult created = runtime.object_store()->create(object);
+    // Through the Runtime's own mutation method (WP-REP-003) rather than
+    // the store directly, so the create executes inside a Repository
+    // Transaction and is journaled like every other write.
+    const oep::runtime::RuntimeObjectMutationResult created =
+        runtime.create_object(*object_type, object_name, description, author, split_csv(tags_csv));
     if (!created.success) {
         std::cerr << "oep: could not create object: " << created.error << "\n";
         runtime.shutdown();
@@ -220,7 +217,9 @@ int ObjectCommand::remove(const std::vector<std::string>& args) const {
         return 1;
     }
 
-    const oep::repository::ObjectResult removed = runtime.object_store()->remove(object_id);
+    // Through the Runtime (WP-REP-003): the delete runs inside a
+    // Repository Transaction and is journaled.
+    const oep::runtime::RuntimeResult removed = runtime.delete_object(object_id);
     if (!removed.success) {
         std::cerr << "oep: could not delete object: " << removed.error << "\n";
         runtime.shutdown();

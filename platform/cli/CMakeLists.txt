@@ -10,6 +10,9 @@ add_library(oep_cli_core STATIC
     src/commands/init_command.cpp
     src/commands/object_command.cpp
     src/commands/open_command.cpp
+    src/commands/package_command.cpp
+    src/commands/transaction_command.cpp
+    src/commands/trust_command.cpp
     src/commands/packages_command.cpp
     src/commands/relationship_command.cpp
     src/commands/repository_path_option.cpp

@@ -33,3 +33,15 @@ add_test(NAME oep_template_command_tests COMMAND oep_template_command_tests)
 add_executable(oep_batch_command_tests batch_command_tests.cpp)
 target_link_libraries(oep_batch_command_tests PRIVATE oep_cli_core)
 add_test(NAME oep_batch_command_tests COMMAND oep_batch_command_tests)
+
+add_executable(oep_package_command_tests package_command_tests.cpp)
+target_link_libraries(oep_package_command_tests PRIVATE oep_cli_core)
+add_test(NAME oep_package_command_tests COMMAND oep_package_command_tests)
+
+add_executable(oep_transaction_command_tests transaction_command_tests.cpp)
+target_link_libraries(oep_transaction_command_tests PRIVATE oep_cli_core)
+add_test(NAME oep_transaction_command_tests COMMAND oep_transaction_command_tests)
+
+add_executable(oep_trust_command_tests trust_command_tests.cpp)
+target_link_libraries(oep_trust_command_tests PRIVATE oep_cli_core)
+add_test(NAME oep_trust_command_tests COMMAND oep_trust_command_tests)

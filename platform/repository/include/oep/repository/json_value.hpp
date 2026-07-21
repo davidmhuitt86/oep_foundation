@@ -30,10 +30,13 @@ public:
     static Value object(Object value);
 
     Type type() const { return type_; }
+    bool is_bool() const { return type_ == Type::Bool; }
     bool is_string() const { return type_ == Type::String; }
     bool is_array() const { return type_ == Type::Array; }
     bool is_object() const { return type_ == Type::Object; }
 
+    bool as_bool() const;
+    double as_number() const;
     const std::string& as_string() const;
     const Array& as_array() const;
     const Object& as_object() const;

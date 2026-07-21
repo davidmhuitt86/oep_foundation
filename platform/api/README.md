@@ -1,8 +1,8 @@
 # API
 
-Status: Foundation (Public C API + Bridge Support + Repository Content Exposure + Search + Mutation)
+Status: Foundation (Public C API + Bridge Support + Repository Content Exposure + Search + Mutation + Package Installation)
 
-Purpose: The Public C API — Foundation's only supported native interface, per OEP-SPEC-021-PUBLIC_C_API — the primitives external Bridge implementations (Flutter, C#, Python, Java, etc.) build on, per OEP-SPEC-022-FOUNDATION_BRIDGE_SUPPORT, the Engineering Object/Relationship enumeration, repository statistics, and search surface OEP Studio and other consumers need (Work Packages 012–013), and — per Work Package 014 — the first write-capable surface of this API: object/relationship mutation, transactions, and batch mutation. Every Studio, SDK, and testing tool that isn't the CLI is expected to reach Foundation through this boundary rather than linking `platform/runtime` or `platform/search` C++ types directly.
+Purpose: The Public C API — Foundation's only supported native interface, per OEP-SPEC-021-PUBLIC_C_API — the primitives external Bridge implementations (Flutter, C#, Python, Java, etc.) build on, per OEP-SPEC-022-FOUNDATION_BRIDGE_SUPPORT, the Engineering Object/Relationship enumeration, repository statistics, and search surface OEP Studio and other consumers need (Work Packages 012–013), the first write-capable surface of this API — object/relationship mutation, transactions, and batch mutation (Work Package 014) — and, per WP-REP-001 (Repository Runtime), `.oep` package installation. Every Studio, SDK, and testing tool that isn't the CLI is expected to reach Foundation through this boundary rather than linking `platform/runtime` or `platform/search` C++ types directly.
 
 See [MUTATION_API.md](MUTATION_API.md) for the full mutation/transaction/batch-mutation reference (Work Package 014). This file documents the API's read-only surface, lifecycle, ownership, and Bridge integration guidance in general.
 
@@ -151,13 +151,126 @@ The first write-capable surface of this API. Full reference (usage, exact undo s
 
 Every mutation and transaction method added to `FoundationRuntime` for this section is a thin orchestration layer: it decides which `ObjectStore`/`RelationshipStore` method to call and, when relevant, what to log for rollback — it never re-implements `validate_object`/`validate_relationship` or any other rule Foundation's Repository layer already enforces.
 
+## Package Installation (Work Package WP-REP-001, Repository Runtime)
+
+The first vertical slice of the Foundation Repository Runtime: installing a valid `.oep` package — extracting its Repository Fragment (Engineering Objects and Relationships), registering them into the open repository, updating the Search/Graph indexes, and recording the install in the Package Registry.
+
+```c
+oep_package_install_result_t install_result;
+oep_package_install(runtime, "/path/to/engineering-demo.oep", &install_result);
+printf("Installed %s %s: %d objects, %d relationships\n",
+       install_result.package_id, install_result.version,
+       install_result.objects_created, install_result.relationships_created);
+
+oep_installed_package_list_t installed;
+oep_package_list_installed(runtime, &installed);
+for (int i = 0; i < installed.count; ++i) {
+    printf("%s %s (%s)\n", installed.items[i].package_id, installed.items[i].version, installed.items[i].source);
+}
+oep_installed_package_list_release(&installed);
+```
+
+`oep_package_install` delegates entirely to `FoundationRuntime::install_package`, which: opens the archive via `oep::installer::ZipReader` (ZIP "Stored"/uncompressed entries only — DEFLATE is rejected), validates and parses `manifest/package.json` per PKG-002, parses every `repository/objects/*.json` and `repository/relationships/*.json` entry, creates each via the existing `ObjectStore::create`/`RelationshipStore::create` (archive-declared IDs are preserved, not remapped), rebuilds the Search and Graph indexes, and records one entry in the Package Registry (`oep::installer::PackageRegistry`, `<repository>/packages/<packageId>/registry.json`).
+
+**Explicitly out of scope for this Work Package** (see `platform/installer/README.md` for the full rationale): dependency resolution, transactions/atomicity (a failure partway through an install is **not** rolled back — prior successful creates remain in place), merge/ownership logic, digital signature verification, networking, update, and uninstall. `oep_package_install` is not wrapped in `oep_transaction_begin`/`commit`/`rollback` — this is a deliberate scope decision, not an oversight.
+
+`oep_package_list_installed` returns every Repository Registry record for the open repository (package ID, version, title, install timestamp, source, object/relationship counts), sorted deterministically by `package_id` (ascending, byte-wise), matching the sorting convention every other list-returning function in this API already follows.
+
+## Package Lifecycle Queries (WP-REP-002, Repository Registry & Lifecycle)
+
+Read-only queries over the Repository Registry — the authoritative inventory of every `.oep` package installed in the open Foundation Repository. Nothing here mutates; update, uninstall, and activation remain out of scope through WP-REP-002.
+
+```c
+oep_package_details_t details;
+oep_package_get_info(runtime, "com.oep.demo.engineering-showcase", &details);
+printf("%s %s by %s — state %s, hash %s\n", details.title, details.version,
+       details.publisher_name, details.runtime_state, details.package_hash);
+
+oep_object_list_t objects; oep_relationship_list_t relationships;
+oep_package_get_contents(runtime, "com.oep.demo.engineering-showcase", &objects, &relationships);
+/* ... */
+oep_object_list_release(&objects);
+oep_relationship_list_release(&relationships);
+
+oep_package_owner_t owner;
+oep_package_locate(runtime, "f8c97088-71d9-4f34-969f-b5d49d951627", &owner);
+
+oep_package_verify_result_t verified;
+oep_package_verify(runtime, "com.oep.demo.engineering-showcase", &verified);
+
+oep_installed_package_list_t matches;
+oep_package_search(runtime, "ignition", &matches);
+oep_installed_package_list_release(&matches);
+```
+
+- `oep_package_get_info` — the full Repository Registry record (`oep_package_details_t`: manifest metadata, publisher, installation date/source/path, SHA-256 package hash, runtime state — always `"Installed"` through WP-REP-002 — engineering domains, contribution counts). Plain, pointer-free value type; no release function. The pre-existing `oep_installed_package_info_t` is retained unchanged for ABI compatibility.
+- `oep_package_get_contents` — the package's contributed Engineering Objects and Relationships, loaded **live** from the repository's own stores (the registry records only IDs; Engineering Object data is never duplicated into it). Released with the same `oep_object_list_release`/`oep_relationship_list_release` every other object/relationship list already uses.
+- `oep_package_locate` — which installed package owns a given Engineering Object or Relationship ID. An unowned ID succeeds with `found == 0` — a normal answer, not an error.
+- `oep_package_verify` — checks every recorded contribution still exists, and (when the source archive still exists at its recorded path) that its bytes still hash to the recorded SHA-256. The verification outcome lives in `oep_package_verify_result_t::verified`, not the `oep_result_t` — only operational problems (not installed, no repository open) fail the call. A missing archive is reported via `archive_available == 0`, not treated as a failure. **The hash is an integrity fingerprint, not a signature** — trust/signing is PKG-005, a future work package.
+- `oep_package_search` — case-insensitive substring match over registry metadata (ID/title/summary/category/version/publisher/engineering domains) plus the live names of each package's installed objects. Same result type, sorting, and release function as `oep_package_list_installed`.
+
+## Repository Transaction Engine (WP-REP-003)
+
+WP-REP-003 upgraded the Work Package 014 transaction primitives (`oep_transaction_begin`/`_commit`/`_rollback`/`_is_active` — every signature unchanged) into the Repository Transaction Engine: every transaction has a UUIDv4 identity, every Runtime write outside an explicit transaction runs inside an implicit one, every closed transaction writes a permanent journal record under the repository's `logs/transactions/` directory, and **`oep_package_install` is atomic** — a failure rolls back everything it created, superseding WP-REP-001/002's documented non-transactional behavior.
+
+```c
+oep_transaction_info_t info;
+oep_transaction_get_info(runtime, &info);           /* active == 0 is a normal answer */
+
+oep_transaction_record_list_t history;
+oep_transaction_history(runtime, &history);
+for (int i = 0; i < history.count; ++i) {
+    printf("%s %s (%s, %d ops)\n", history.items[i].transaction_id, history.items[i].state,
+           history.items[i].description, history.items[i].journal_entry_count);
+}
+oep_transaction_record_list_release(&history);
+```
+
+- `oep_transaction_get_info` — the active transaction's id, description, and journaled-operation count. Plain value type, no release function.
+- `oep_transaction_history` — every journaled (closed) transaction, sorted by opened time then id; states are `"Committed"`, `"RolledBack"`, or `"Failed"`. Released with exactly one call to `oep_transaction_record_list_release`.
+- **One documented behavior change:** `oep_transaction_commit` can now fail in exactly one new way — the journal record could not be written. The mutations are already persisted in that case; the error means the audit trail is incomplete, never that data was lost. A journal problem never prevents a rollback from restoring repository state.
+
+**Memory ownership:** `oep_package_install` allocates nothing beyond the caller-supplied `oep_package_install_result_t` it fills. `oep_package_list_installed` allocates one heap array (`oep_installed_package_list_t::items`), released with exactly one call to `oep_installed_package_list_release` — same ownership model as every other `*_list_t` in this API.
+
+**Errors:** an archive that fails to open, fails ZIP parsing, fails manifest validation, fails trust verification (WP-REP-004, see below), or contains an object/relationship that fails `validate_object`/`validate_relationship` fails the call with `OEP_ERROR_OPERATION_FAILED` (or `OEP_ERROR_INVALID_ARGUMENT` for a missing/empty archive path). Since WP-REP-003, a failure partway through the object/relationship creation loop is fully rolled back (atomic install) rather than leaving partial content in place. A `package_id` already present in the Repository Registry fails with `OEP_ERROR_OPERATION_FAILED` — this Work Package has no update path, so installing the same package twice is rejected outright rather than silently overwriting the prior install.
+
+## Trust & Signing (WP-REP-004, Repository Trust & Signing Subsystem)
+
+Per PKG-005: every `.oep` package is verified offline against this repository's own Trust Store, **before** `oep_package_install` opens any Repository Transaction. A package that is `Tampered`, has an `InvalidSignature`, an `UnknownPublisher`, an `ExpiredCertificate`, or a `RevokedCertificate` is rejected outright. An `Unsigned` package installs exactly as in earlier work packages unless the Trust Store's policy requires signatures.
+
+```c
+oep_publisher_certificate_t certificate;
+oep_trust_add_certificate(runtime, "demo-publisher", "OEP Demo Publisher",
+                           "f0d4c9193230152701be5d342a9cbb922d7b641fbf0be7ff554a4a3067291544",
+                           NULL, NULL, NULL, NULL, &certificate);
+
+oep_package_install_result_t install_result;
+oep_package_install(runtime, "engineering-demo.oep", &install_result); /* now Trusted */
+
+oep_package_trust_status_t status;
+oep_package_get_trust_status(runtime, install_result.package_id, &status);
+printf("%s\n", oep_trust_state_to_string(status.state));
+```
+
+- `oep_trust_add_certificate` — trusts a publisher certificate (`publisher_id`/`public_key_hex` required; the rest may be `NULL`, treated as empty). Fails if the publisher already has a certificate (renewal is out of scope). The fingerprint is always computed locally (SHA-256 of the raw public key), never taken from a caller-supplied field.
+- `oep_trust_get_certificate` — fails with `OEP_ERROR_NOT_FOUND` if the publisher has no certificate on file, matching `oep_object_store_get_by_id`'s "get by known ID" convention.
+- `oep_trust_list_certificates` — every certificate, trusted and revoked alike (check `revoked`), sorted by `publisher_id`. Released with `oep_certificate_list_release`.
+- `oep_trust_revoke_certificate` — marks the certificate revoked (kept, per PKG-005 §12/§13's retained-history model); does not uninstall anything already installed from that publisher.
+- `oep_trust_get_policy`/`oep_trust_set_policy` — whether unsigned packages are rejected at install. Default: `0` (unsigned packages install, matching every earlier work package).
+- `oep_package_get_trust_status` — the `TrustState` recorded for an already-installed package at install time (not re-verified on demand). Fails with `OEP_ERROR_NOT_FOUND` if the package isn't installed.
+- `oep_trust_state_to_string` — deterministic name for an `oep_trust_state_t` (e.g. `"Trusted"`, `"RevokedCertificate"`).
+
+**Memory ownership:** `oep_publisher_certificate_t` and `oep_package_trust_status_t` are plain, pointer-free value types — no release function. `oep_certificate_list_t` follows the standard allocate-once/release-once model (`oep_certificate_list_release`).
+
+**Deliberately unchanged for backward compatibility:** `oep_package_install_result_t` and `oep_package_details_t` (WP-REP-002) were **not** extended with trust fields — doing so would have changed their layout for every existing caller. Trust status is queried separately via `oep_package_get_trust_status`, following this API's established "add a new struct/function, never modify an existing one" convention (see Versioning below).
+
 ## Handle Ownership
 
 - `oep_runtime_create` returns an owning handle; the caller must release it with exactly one call to `oep_runtime_destroy`. Returns `NULL` on invalid input or allocation failure — callers must check for `NULL` before use.
 - `oep_runtime_destroy` closes an open repository first if necessary (mirroring `FoundationRuntime::shutdown`), then frees the handle. It is safe to call with `NULL` (a no-op) and safe to call on any state, including one with a repository still open.
 - `oep_result_t` is a plain value type (a `struct` returned by value, containing only an `int`, two `enum`s, and a fixed `char[256]` buffer). It owns no heap memory and requires no release function.
 - `oep_repository_status_t`, `oep_object_info_t`, `oep_repository_statistics_t`, `oep_relationship_info_t`, `oep_object_search_result_t`, and `oep_relationship_search_result_t` are likewise plain, pointer-free value types — safe to copy with `memcpy` and safe to convert directly into a language-native model by a Bridge.
-- `oep_object_list_t`, `oep_relationship_list_t`, `oep_object_search_result_list_t`, `oep_relationship_search_result_list_t`, `oep_batch_create_objects_result_t`, and `oep_batch_create_relationships_result_t` each carry one Foundation-owned heap array (`items`/`created.items`); `oep_repository_search_result_t` carries two (one per embedded list). Every allocating structure is paired with exactly one matching release function — `oep_object_list_release`, `oep_relationship_list_release`, `oep_object_search_result_list_release`, `oep_relationship_search_result_list_release`, `oep_repository_search_result_release`, `oep_batch_create_objects_result_release`, and `oep_batch_create_relationships_result_release` respectively — see "Engineering Object Enumeration", "Engineering Relationship Enumeration", "Repository Search", and [MUTATION_API.md](MUTATION_API.md) above for the exact ownership contract of each.
+- `oep_object_list_t`, `oep_relationship_list_t`, `oep_object_search_result_list_t`, `oep_relationship_search_result_list_t`, `oep_batch_create_objects_result_t`, `oep_batch_create_relationships_result_t`, and `oep_installed_package_list_t` each carry one Foundation-owned heap array (`items`/`created.items`); `oep_repository_search_result_t` carries two (one per embedded list). Every allocating structure is paired with exactly one matching release function — `oep_object_list_release`, `oep_relationship_list_release`, `oep_object_search_result_list_release`, `oep_relationship_search_result_list_release`, `oep_repository_search_result_release`, `oep_batch_create_objects_result_release`, `oep_batch_create_relationships_result_release`, and `oep_installed_package_list_release` respectively — see "Engineering Object Enumeration", "Engineering Relationship Enumeration", "Repository Search", "Package Installation", and [MUTATION_API.md](MUTATION_API.md) above for the exact ownership contract of each. `oep_package_install_result_t` is a plain, pointer-free value type like `oep_repository_status_t` — no release function needed.
 - `oep_object_create_spec_t`/`oep_relationship_create_spec_t` (batch mutation input) are the one exception that goes the other direction: their `const char*` fields point to **caller**-owned memory. Foundation only reads them for the duration of the batch call; there is no ownership transfer and nothing to release.
 - Aside from the allocating output structures above, no function in this API returns a heap-allocated string or buffer the caller must free. Every other string-valued output is either a pointer into static storage (documented as such at each function, e.g. `oep_foundation_version`, `oep_runtime_state_to_string`) or copied into a caller-supplied fixed buffer embedded in a result/status structure.
 
@@ -169,6 +282,7 @@ Every mutation and transaction method added to `FoundationRuntime` for this sect
 - Every `*_release` function (`oep_object_list_release`, `oep_relationship_list_release`, `oep_object_search_result_list_release`, `oep_relationship_search_result_list_release`, `oep_repository_search_result_release`) operates only on the structure passed to it and touches no `OEP_Runtime` state — safe to call from any thread, including one different from the thread that populated the structure, as long as no other thread is concurrently using or releasing the same structure.
 - Relationship enumeration (`oep_relationship_store_get_count`/`_get_by_id`/`_list`) and search (`oep_search_repository`/`_objects`/`_relationships`) follow the same single-handle rule as every other `OEP_Runtime`-taking function: not safe for concurrent calls against the *same* handle, fully independent across *distinct* handles. Search additionally reads the in-memory index `SearchEngine::build_index` constructed when the repository was opened — that index is owned by the `FoundationRuntime` behind the handle, so the same single-handle rule covers it without any separate locking concern.
 - **Object/relationship mutation and transactions (Work Package 014) introduce no new guarantee beyond the single-handle rule** — they follow it exactly. A transaction's state (`transaction_active_`, its undo log) lives inside the `FoundationRuntime` a given handle wraps, so it is inherently per-handle: two distinct handles have entirely independent transactions, even against the same repository directory. Note that `ObjectStore`/`RelationshipStore` perform no file locking, so concurrent mutation through two handles against the *same* repository is not a supported configuration regardless of transactions — a pre-existing characteristic of the Repository layer, not something this API changes or protects against.
+- **Package Installation (WP-REP-001) follows the same single-handle rule**, with the same "no cross-handle file locking" caveat: `oep_package_install` performs multiple sequential writes (object/relationship creation, then a Package Registry record) against the same on-disk repository a plain mutation call would touch, so it is no more and no less safe for concurrent use than any other mutating function in this API.
 - Bridge implementations that expose Foundation to a multi-threaded host environment (e.g. a UI event loop plus background workers) must serialize access to a single handle themselves — a mutex or a single dedicated "Foundation thread" per handle are both correct strategies.
 
 ## Error Handling
@@ -193,8 +307,8 @@ Native C++ exceptions never cross this boundary: every exported function wraps i
 Three independent version signals are exposed, per OEP-SPEC-021 section 8:
 
 - `oep_foundation_version()` — the Foundation version this build implements (e.g. `"0.1.0"`), shared with the CLI (`oep::runtime::kFoundationVersion`, `oep version`/`oep status`) so both layers always agree.
-- `oep_api_version()` — `OEP_API_VERSION`, incremented for any addition or change to this API's functions or structures. Currently `4`: bumped 1 → 2 by Work Package 012 (Engineering Object Enumeration, Repository Statistics), 2 → 3 by Work Package 013 (Engineering Relationship Enumeration, Repository Search), and 3 → 4 by Work Package 014 (Object/Relationship Mutation, Transactions, Batch Mutation) — every bump purely additive.
-- `oep_abi_version()` — `OEP_ABI_VERSION`, incremented only when a change would break binary compatibility with a previously compiled caller (e.g. a struct layout change). Distinct from `OEP_API_VERSION` because a source-compatible addition need not be an ABI break. Still `1` — no work package through 014 has changed the layout of any existing structure; Work Package 014 only added new functions and new structures.
+- `oep_api_version()` — `OEP_API_VERSION`, incremented for any addition or change to this API's functions or structures. Currently `8`: bumped 1 → 2 by Work Package 012 (Engineering Object Enumeration, Repository Statistics), 2 → 3 by Work Package 013 (Engineering Relationship Enumeration, Repository Search), 3 → 4 by Work Package 014 (Object/Relationship Mutation, Transactions, Batch Mutation), 4 → 5 by WP-REP-001 (Package Installation), 5 → 6 by WP-REP-002 (Package Lifecycle Queries), 6 → 7 by WP-REP-003 (Repository Transaction Engine), and 7 → 8 by WP-REP-004 (Trust & Signing) — every bump purely additive in signature terms; behavior changes (atomic install, commit's possible journal-write error, trust verification before install) are documented in their own sections.
+- `oep_abi_version()` — `OEP_ABI_VERSION`, incremented only when a change would break binary compatibility with a previously compiled caller (e.g. a struct layout change). Distinct from `OEP_API_VERSION` because a source-compatible addition need not be an ABI break. Still `1` — no work package through WP-REP-004 has changed the layout of any existing structure; each added only new functions and new structures (`oep_installed_package_info_t` and `oep_package_details_t` in particular were deliberately left unchanged when WP-REP-004 needed to expose trust status — that became the new `oep_package_trust_status_t` and `oep_package_get_trust_status` instead).
 
 Applications and Bridges should check `oep_abi_version()` against the version they were built against before relying on any struct layout in this header.
 
@@ -207,4 +321,4 @@ A Bridge is any language-neutral adapter that exposes this API to a non-C++ host
 - **Data conversion** — `oep_repository_status_t`, `oep_object_info_t`, `oep_repository_statistics_t`, `oep_relationship_info_t`, `oep_object_search_result_t`, and `oep_relationship_search_result_t` are all fixed-layout, pointer-free C structs: no `std::string`, no `std::vector`, no owning pointers. A Bridge can copy any of them directly into a native struct/record field-by-field without any Foundation-provided marshaling code, and doing so is deterministic — the same repository state and query always produce the same structure contents. `oep_object_list_t`, `oep_relationship_list_t`, `oep_object_search_result_list_t`, `oep_relationship_search_result_list_t`, `oep_batch_create_objects_result_t`, and `oep_batch_create_relationships_result_t` are the exceptions carrying an owned pointer; a Bridge should convert each element into its native collection type and then call the matching release function promptly, rather than holding the array open indefinitely. `oep_object_create_spec_t`/`oep_relationship_create_spec_t` go the other direction — a Bridge populates them (typically from a native array/list it already owns) purely as call input; Foundation never retains a pointer from them past the call.
 - **Compatibility** — a Bridge should check `oep_abi_version()` at startup and refuse to load (or warn loudly) if it was generated against/tested with a different ABI version, since a struct layout it depends on may have changed.
 
-This module does not implement a Flutter, C#, Python, or Java Bridge — those are explicitly out of scope for both OEP-SPEC-021 and OEP-SPEC-022 and belong to future, separately ratified tasks. Work Packages 012 and 013 added read-only surfaces (enumeration, statistics, search) with no mutation and no server-side filtering (author/tag/type remain a Studio-side responsibility applied to returned results). Work Package 014 is the first work package to add mutation — object/relationship create/update/delete, transactions, and batch mutation; see [MUTATION_API.md](MUTATION_API.md) for its full reference, including the exact transaction/rollback semantics and error classification table.
+This module does not implement a Flutter, C#, Python, or Java Bridge — those are explicitly out of scope for both OEP-SPEC-021 and OEP-SPEC-022 and belong to future, separately ratified tasks. Work Packages 012 and 013 added read-only surfaces (enumeration, statistics, search) with no mutation and no server-side filtering (author/tag/type remain a Studio-side responsibility applied to returned results). Work Package 014 is the first work package to add mutation — object/relationship create/update/delete, transactions, and batch mutation; see [MUTATION_API.md](MUTATION_API.md) for its full reference, including the exact transaction/rollback semantics and error classification table. WP-REP-001 is the first work package to add package installation — see "Package Installation" above for its full reference.

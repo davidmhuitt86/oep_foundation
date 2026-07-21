@@ -1,9 +1,11 @@
 #include "oep/repository/engineering_object.hpp"
 #include "oep/repository/object_store.hpp"
 
+#include <chrono>
 #include <filesystem>
 #include <iostream>
 #include <string>
+#include <thread>
 
 namespace {
 
@@ -60,6 +62,12 @@ void test_update_preserves_immutable_fields(const oep::repository::ObjectStore& 
     updated.object_type = oep::repository::ObjectType::Document; // attempt to change; must be ignored
     updated.name = "Ignition Coil (Rev B)";
     updated.created_utc = "2000-01-01T00:00:00Z"; // attempt to change; must be ignored
+
+    // Timestamps have one-second resolution; without this wait, a fast
+    // machine performs create and update within the same second and
+    // lastModifiedUtc "refreshes" to an identical value, failing the
+    // final check below spuriously.
+    std::this_thread::sleep_for(std::chrono::milliseconds(1100));
 
     const oep::repository::ObjectResult update_result = store.update(updated);
     check(update_result.success, "update succeeds for an existing object");

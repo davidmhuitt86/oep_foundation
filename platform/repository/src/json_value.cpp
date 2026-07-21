@@ -45,6 +45,14 @@ Value Value::object(Object value) {
     return v;
 }
 
+bool Value::as_bool() const {
+    return std::get<bool>(data_);
+}
+
+double Value::as_number() const {
+    return std::get<double>(data_);
+}
+
 const std::string& Value::as_string() const {
     return std::get<std::string>(data_);
 }
@@ -371,8 +379,10 @@ void write_value(std::ostringstream& stream, const Value& value, int indent) {
             break;
         }
         case Value::Type::Bool:
+            stream << (value.as_bool() ? "true" : "false");
+            break;
         case Value::Type::Number:
-            // Not used by repository metadata today; kept for JSON completeness.
+            stream << value.as_number();
             break;
     }
 }

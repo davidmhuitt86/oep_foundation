@@ -91,14 +91,11 @@ int RelationshipCommand::create(const std::vector<std::string>& args) const {
         return 1;
     }
 
-    oep::repository::Relationship relationship;
-    relationship.source_object_id = source_id;
-    relationship.target_object_id = target_id;
-    relationship.relationship_type = *relationship_type;
-    relationship.author = author;
-    relationship.description = description;
-
-    const oep::repository::LoadRelationshipResult created = runtime.relationship_store()->create(relationship);
+    // Through the Runtime's own mutation method (WP-REP-003) rather than
+    // the store directly, so the create executes inside a Repository
+    // Transaction and is journaled like every other write.
+    const oep::runtime::RuntimeRelationshipMutationResult created =
+        runtime.create_relationship(source_id, target_id, *relationship_type, author, description);
     if (!created.success) {
         std::cerr << "oep: could not create relationship: " << created.error << "\n";
         runtime.shutdown();
@@ -217,7 +214,9 @@ int RelationshipCommand::remove(const std::vector<std::string>& args) const {
         return 1;
     }
 
-    const oep::repository::RelationshipResult removed = runtime.relationship_store()->remove(relationship_id);
+    // Through the Runtime (WP-REP-003): the delete runs inside a
+    // Repository Transaction and is journaled.
+    const oep::runtime::RuntimeResult removed = runtime.delete_relationship(relationship_id);
     if (!removed.success) {
         std::cerr << "oep: could not delete relationship: " << removed.error << "\n";
         runtime.shutdown();

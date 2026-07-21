@@ -5,10 +5,13 @@
 #include "oep/repository/object_store.hpp"
 #include "oep/repository/relationship_store.hpp"
 
+#include <cstdint>
 #include <cstring>
 #include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <string>
+#include <vector>
 
 namespace {
 
@@ -67,6 +70,98 @@ std::filesystem::path build_populated_repository(const std::filesystem::path& ro
     relationships.create(relationship);
 
     return root;
+}
+
+void append_u16(std::vector<std::uint8_t>& out, std::uint16_t value) {
+    out.push_back(static_cast<std::uint8_t>(value & 0xFF));
+    out.push_back(static_cast<std::uint8_t>((value >> 8) & 0xFF));
+}
+void append_u32(std::vector<std::uint8_t>& out, std::uint32_t value) {
+    out.push_back(static_cast<std::uint8_t>(value & 0xFF));
+    out.push_back(static_cast<std::uint8_t>((value >> 8) & 0xFF));
+    out.push_back(static_cast<std::uint8_t>((value >> 16) & 0xFF));
+    out.push_back(static_cast<std::uint8_t>((value >> 24) & 0xFF));
+}
+void append_bytes(std::vector<std::uint8_t>& out, const std::string& text) {
+    out.insert(out.end(), text.begin(), text.end());
+}
+
+// Same minimal, Stored-only ZIP builder as tests/installer/*_tests.cpp —
+// duplicated per this codebase's own self-contained-test-file convention.
+std::vector<std::uint8_t> build_stored_zip(const std::vector<std::pair<std::string, std::string>>& entries) {
+    std::vector<std::uint8_t> out;
+    std::vector<std::uint32_t> local_header_offsets;
+    for (const auto& [name, content] : entries) {
+        local_header_offsets.push_back(static_cast<std::uint32_t>(out.size()));
+        append_u32(out, 0x04034b50);
+        append_u16(out, 20);
+        append_u16(out, 0);
+        append_u16(out, 0);
+        append_u16(out, 0);
+        append_u16(out, 0);
+        append_u32(out, 0);
+        append_u32(out, static_cast<std::uint32_t>(content.size()));
+        append_u32(out, static_cast<std::uint32_t>(content.size()));
+        append_u16(out, static_cast<std::uint16_t>(name.size()));
+        append_u16(out, 0);
+        append_bytes(out, name);
+        append_bytes(out, content);
+    }
+    const std::uint32_t central_directory_start = static_cast<std::uint32_t>(out.size());
+    for (std::size_t i = 0; i < entries.size(); ++i) {
+        const auto& [name, content] = entries[i];
+        append_u32(out, 0x02014b50);
+        append_u16(out, 20);
+        append_u16(out, 20);
+        append_u16(out, 0);
+        append_u16(out, 0);
+        append_u16(out, 0);
+        append_u16(out, 0);
+        append_u32(out, 0);
+        append_u32(out, static_cast<std::uint32_t>(content.size()));
+        append_u32(out, static_cast<std::uint32_t>(content.size()));
+        append_u16(out, static_cast<std::uint16_t>(name.size()));
+        append_u16(out, 0);
+        append_u16(out, 0);
+        append_u16(out, 0);
+        append_u16(out, 0);
+        append_u32(out, 0);
+        append_u32(out, local_header_offsets[i]);
+        append_bytes(out, name);
+    }
+    const std::uint32_t central_directory_size = static_cast<std::uint32_t>(out.size()) - central_directory_start;
+    append_u32(out, 0x06054b50);
+    append_u16(out, 0);
+    append_u16(out, 0);
+    append_u16(out, static_cast<std::uint16_t>(entries.size()));
+    append_u16(out, static_cast<std::uint16_t>(entries.size()));
+    append_u32(out, central_directory_size);
+    append_u32(out, central_directory_start);
+    append_u16(out, 0);
+    return out;
+}
+
+// A minimal valid .oep archive with one Component ("API Harness") and no
+// relationships, for the Package Installation / Lifecycle Query tests.
+std::filesystem::path write_demo_archive(const std::filesystem::path& scratch_dir) {
+    const std::string manifest =
+        R"({"schemaVersion":"1.0","packageId":"com.oep.demo.capi","version":"1.0.0",)"
+        R"("publisher":{"id":"demo-publisher","name":"OEP Demo Publisher"},)"
+        R"("title":"C API Demo Package","summary":"s","description":"d","category":"demonstration",)"
+        R"("engineeringDomains":["Automotive"],"license":{},"dependencies":[],"capabilities":[],)"
+        R"("repository":{},"statistics":{},"signatures":{},"build":{}})";
+    const std::string object_a = R"({"objectId":"aaaaaaaa-3333-4000-8000-000000000001","objectType":"Component",)"
+                                  R"("name":"API Harness","description":"d","createdUtc":"2026-01-01T00:00:00Z",)"
+                                  R"("lastModifiedUtc":"2026-01-01T00:00:00Z","version":"1.0.0","author":"a","tags":[]})";
+
+    const std::filesystem::path path = scratch_dir / "capi-demo.oep";
+    const std::vector<std::uint8_t> bytes = build_stored_zip({
+        {"manifest/package.json", manifest},
+        {"fragment/objects/a.json", object_a},
+    });
+    std::ofstream file(path, std::ios::binary | std::ios::trunc);
+    file.write(reinterpret_cast<const char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
+    return path;
 }
 
 void test_version_reporting() {
@@ -971,6 +1066,294 @@ void test_destroy_closes_an_open_repository(const std::filesystem::path& scratch
 
 } // namespace
 
+void test_package_install_and_lifecycle_queries(const std::filesystem::path& scratch_dir) {
+    build_repository(scratch_dir / "package_lifecycle");
+    const std::filesystem::path archive = write_demo_archive(scratch_dir);
+
+    OEP_Runtime runtime = oep_runtime_create("0.1.0");
+    oep_runtime_initialize(runtime);
+    oep_runtime_open_repository(runtime, (scratch_dir / "package_lifecycle").string().c_str());
+
+    // install
+    oep_package_install_result_t install_result;
+    oep_result_t result = oep_package_install(runtime, archive.string().c_str(), &install_result);
+    check(result.success == 1, std::string("oep_package_install succeeds: ") + result.error_message);
+    check(std::string(install_result.package_id) == "com.oep.demo.capi",
+          "the install result carries the installed packageId");
+    check(install_result.objects_created == 1, "the install result counts the installed object");
+
+    // list
+    oep_installed_package_list_t installed;
+    result = oep_package_list_installed(runtime, &installed);
+    check(result.success == 1 && installed.count == 1, "oep_package_list_installed lists the installed package");
+    oep_installed_package_list_release(&installed);
+
+    // get_info
+    oep_package_details_t details;
+    result = oep_package_get_info(runtime, "com.oep.demo.capi", &details);
+    check(result.success == 1, std::string("oep_package_get_info succeeds: ") + result.error_message);
+    check(std::string(details.title) == "C API Demo Package", "package details carry the title");
+    check(std::string(details.publisher_name) == "OEP Demo Publisher", "package details carry the publisher");
+    check(std::string(details.runtime_state) == "Installed", "package details carry the runtime state");
+    check(std::strlen(details.package_hash) == 64, "package details carry a SHA-256 hash");
+    check(details.engineering_domain_count == 1 &&
+              std::string(details.engineering_domains[0]) == "Automotive",
+          "package details carry the engineering domains");
+    check(details.object_count == 1 && details.relationship_count == 0,
+          "package details carry contribution counts");
+
+    result = oep_package_get_info(runtime, "com.oep.no-such", &details);
+    check(result.success == 0 && result.error_code == OEP_ERROR_NOT_FOUND,
+          "oep_package_get_info reports NOT_FOUND for an uninstalled package");
+
+    // get_contents
+    oep_object_list_t content_objects;
+    oep_relationship_list_t content_relationships;
+    result = oep_package_get_contents(runtime, "com.oep.demo.capi", &content_objects, &content_relationships);
+    check(result.success == 1, std::string("oep_package_get_contents succeeds: ") + result.error_message);
+    check(content_objects.count == 1 && std::string(content_objects.items[0].name) == "API Harness",
+          "package contents include the installed object, loaded live from the repository");
+    check(content_relationships.count == 0, "package contents report no relationships for this package");
+    oep_object_list_release(&content_objects);
+    oep_relationship_list_release(&content_relationships);
+
+    // locate
+    oep_package_owner_t owner;
+    result = oep_package_locate(runtime, "aaaaaaaa-3333-4000-8000-000000000001", &owner);
+    check(result.success == 1 && owner.found == 1 && owner.kind == OEP_OWNED_ENTITY_OBJECT,
+          "oep_package_locate resolves an installed object to its owner");
+    check(std::string(owner.package_id) == "com.oep.demo.capi", "the owner is the installed package");
+
+    result = oep_package_locate(runtime, "not-an-id", &owner);
+    check(result.success == 1 && owner.found == 0,
+          "oep_package_locate succeeds with found == 0 for an unowned id — a normal answer, not an error");
+
+    // verify
+    oep_package_verify_result_t verify_result;
+    result = oep_package_verify(runtime, "com.oep.demo.capi", &verify_result);
+    check(result.success == 1 && verify_result.verified == 1,
+          "oep_package_verify passes for an intact install");
+    check(verify_result.archive_available == 1 && verify_result.archive_hash_matches == 1,
+          "oep_package_verify confirms the archive hash");
+
+    result = oep_package_verify(runtime, "com.oep.no-such", &verify_result);
+    check(result.success == 0 && result.error_code == OEP_ERROR_NOT_FOUND,
+          "oep_package_verify reports NOT_FOUND for an uninstalled package");
+
+    // search
+    oep_installed_package_list_t matches;
+    result = oep_package_search(runtime, "API Harness", &matches);
+    check(result.success == 1 && matches.count == 1,
+          "oep_package_search matches by installed object name");
+    oep_installed_package_list_release(&matches);
+
+    result = oep_package_search(runtime, "", &matches);
+    check(result.success == 0 && result.error_code == OEP_ERROR_INVALID_ARGUMENT,
+          "oep_package_search rejects an empty query");
+
+    oep_runtime_destroy(runtime);
+}
+
+void test_transaction_engine_info_and_history(const std::filesystem::path& scratch_dir) {
+    build_repository(scratch_dir / "transaction_engine");
+
+    OEP_Runtime runtime = oep_runtime_create("0.1.0");
+    oep_runtime_initialize(runtime);
+    oep_runtime_open_repository(runtime, (scratch_dir / "transaction_engine").string().c_str());
+
+    // No transaction active: info succeeds with active == 0.
+    oep_transaction_info_t info;
+    oep_result_t result = oep_transaction_get_info(runtime, &info);
+    check(result.success == 1 && info.active == 0,
+          "oep_transaction_get_info reports no active transaction as a normal answer");
+
+    // Active transaction: id and description are visible.
+    oep_transaction_begin(runtime);
+    result = oep_transaction_get_info(runtime, &info);
+    check(result.success == 1 && info.active == 1 && std::strlen(info.transaction_id) == 36,
+          "an active transaction reports a UUIDv4 transaction id");
+
+    oep_object_info_t created;
+    oep_object_create(runtime, OEP_OBJECT_TYPE_COMPONENT, "Journaled Widget", "", "author", nullptr, 0, &created);
+    result = oep_transaction_get_info(runtime, &info);
+    check(result.success == 1 && info.journal_entry_count == 1,
+          "the active transaction counts its journaled operations");
+
+    oep_transaction_commit(runtime);
+
+    // A single mutation outside a transaction is journaled too (implicit
+    // transaction), so history now has two records.
+    oep_object_create(runtime, OEP_OBJECT_TYPE_DOCUMENT, "Implicit Doc", "", "author", nullptr, 0, nullptr);
+
+    oep_transaction_record_list_t history;
+    result = oep_transaction_history(runtime, &history);
+    check(result.success == 1 && history.count == 2,
+          "oep_transaction_history lists the explicit and the implicit transaction");
+    bool all_committed = true;
+    for (int i = 0; i < history.count; ++i) {
+        if (std::string(history.items[i].state) != "Committed") all_committed = false;
+        check(std::strlen(history.items[i].transaction_id) == 36, "every history record has a transaction id");
+    }
+    check(all_committed, "both journaled transactions are Committed");
+    oep_transaction_record_list_release(&history);
+    check(history.items == nullptr && history.count == 0, "release zeroes the history list");
+
+    oep_runtime_destroy(runtime);
+}
+
+void test_transaction_engine_requires_open_repository() {
+    OEP_Runtime runtime = oep_runtime_create("0.1.0");
+    oep_runtime_initialize(runtime);
+
+    oep_transaction_info_t info;
+    check(oep_transaction_get_info(runtime, &info).error_code == OEP_ERROR_INVALID_STATE,
+          "oep_transaction_get_info requires an open repository");
+    oep_transaction_record_list_t history;
+    check(oep_transaction_history(runtime, &history).error_code == OEP_ERROR_INVALID_STATE,
+          "oep_transaction_history requires an open repository");
+
+    oep_runtime_destroy(runtime);
+}
+
+void test_trust_store_certificate_lifecycle(const std::filesystem::path& scratch_dir) {
+    build_repository(scratch_dir / "trust_capi");
+
+    OEP_Runtime runtime = oep_runtime_create("0.1.0");
+    oep_runtime_initialize(runtime);
+    oep_runtime_open_repository(runtime, (scratch_dir / "trust_capi").string().c_str());
+
+    // Default policy: signatures not required.
+    int require_signatures = -1;
+    oep_result_t result = oep_trust_get_policy(runtime, &require_signatures);
+    check(result.success == 1 && require_signatures == 0, "the default trust policy does not require signatures");
+
+    // No certificate yet: NOT_FOUND.
+    oep_publisher_certificate_t certificate;
+    result = oep_trust_get_certificate(runtime, "com.pub.capi", &certificate);
+    check(result.success == 0 && result.error_code == OEP_ERROR_NOT_FOUND,
+          "oep_trust_get_certificate reports NOT_FOUND before any certificate is added");
+
+    // Add.
+    const char* public_key_hex = "99c4ac9e6560c3a1e4bfd6a20e5ab6513aa77eea9233c01fe296e8b17f106cff";
+    result = oep_trust_add_certificate(runtime, "com.pub.capi", "CAPI Publisher", public_key_hex,
+                                        "2026-01-01T00:00:00Z", "2030-01-01T00:00:00Z", "self", "1", &certificate);
+    check(result.success == 1, std::string("oep_trust_add_certificate succeeds: ") + result.error_message);
+    check(std::string(certificate.publisher_name) == "CAPI Publisher", "the returned certificate carries its fields");
+    check(std::strlen(certificate.fingerprint) == 64, "the returned certificate carries a computed fingerprint");
+    check(certificate.revoked == 0, "a freshly added certificate is not revoked");
+
+    // Adding again for the same publisher is rejected (no renewal).
+    result = oep_trust_add_certificate(runtime, "com.pub.capi", "CAPI Publisher", public_key_hex, nullptr, nullptr,
+                                        nullptr, nullptr, nullptr);
+    check(result.success == 0, "a second certificate for the same publisher is rejected");
+
+    // Get.
+    result = oep_trust_get_certificate(runtime, "com.pub.capi", &certificate);
+    check(result.success == 1 && std::string(certificate.publisher_id) == "com.pub.capi",
+          "oep_trust_get_certificate finds the added certificate");
+
+    // List.
+    oep_certificate_list_t list;
+    result = oep_trust_list_certificates(runtime, &list);
+    check(result.success == 1 && list.count == 1, "oep_trust_list_certificates lists the added certificate");
+    oep_certificate_list_release(&list);
+    check(list.items == nullptr && list.count == 0, "release zeroes the certificate list");
+
+    // Set policy, then revoke.
+    result = oep_trust_set_policy(runtime, 1);
+    check(result.success == 1, "oep_trust_set_policy succeeds");
+    result = oep_trust_get_policy(runtime, &require_signatures);
+    check(result.success == 1 && require_signatures == 1, "the policy change round-trips");
+
+    result = oep_trust_revoke_certificate(runtime, "com.pub.capi");
+    check(result.success == 1, "oep_trust_revoke_certificate succeeds");
+    result = oep_trust_get_certificate(runtime, "com.pub.capi", &certificate);
+    check(result.success == 1 && certificate.revoked == 1, "the certificate is kept, marked revoked");
+
+    result = oep_trust_revoke_certificate(runtime, "com.pub.capi");
+    check(result.success == 0, "revoking an already-revoked certificate fails");
+    result = oep_trust_revoke_certificate(runtime, "com.pub.never-added");
+    check(result.success == 0 && result.error_code == OEP_ERROR_NOT_FOUND,
+          "revoking an unknown publisher reports NOT_FOUND");
+
+    oep_runtime_destroy(runtime);
+}
+
+void test_package_trust_status_and_unsigned_install(const std::filesystem::path& scratch_dir) {
+    build_repository(scratch_dir / "trust_status_capi");
+    const std::filesystem::path archive = write_demo_archive(scratch_dir);
+
+    OEP_Runtime runtime = oep_runtime_create("0.1.0");
+    oep_runtime_initialize(runtime);
+    oep_runtime_open_repository(runtime, (scratch_dir / "trust_status_capi").string().c_str());
+
+    oep_package_install_result_t install_result;
+    oep_result_t result = oep_package_install(runtime, archive.string().c_str(), &install_result);
+    check(result.success == 1, std::string("an unsigned package still installs by default: ") + result.error_message);
+
+    oep_package_trust_status_t trust_status;
+    result = oep_package_get_trust_status(runtime, "com.oep.demo.capi", &trust_status);
+    check(result.success == 1 && trust_status.state == OEP_TRUST_UNSIGNED,
+          "oep_package_get_trust_status reports OEP_TRUST_UNSIGNED for an unsigned install");
+
+    result = oep_package_get_trust_status(runtime, "com.oep.no-such", &trust_status);
+    check(result.success == 0 && result.error_code == OEP_ERROR_NOT_FOUND,
+          "oep_package_get_trust_status reports NOT_FOUND for an uninstalled package");
+
+    oep_runtime_destroy(runtime);
+}
+
+void test_trust_functions_require_open_repository() {
+    OEP_Runtime runtime = oep_runtime_create("0.1.0");
+    oep_runtime_initialize(runtime);
+
+    oep_publisher_certificate_t certificate;
+    check(oep_trust_add_certificate(runtime, "x", nullptr, "y", nullptr, nullptr, nullptr, nullptr, nullptr)
+                  .error_code == OEP_ERROR_INVALID_STATE,
+          "oep_trust_add_certificate requires an open repository");
+    check(oep_trust_get_certificate(runtime, "x", &certificate).error_code == OEP_ERROR_INVALID_STATE,
+          "oep_trust_get_certificate requires an open repository");
+    oep_certificate_list_t list;
+    check(oep_trust_list_certificates(runtime, &list).error_code == OEP_ERROR_INVALID_STATE,
+          "oep_trust_list_certificates requires an open repository");
+    check(oep_trust_revoke_certificate(runtime, "x").error_code == OEP_ERROR_INVALID_STATE,
+          "oep_trust_revoke_certificate requires an open repository");
+    int require_signatures = 0;
+    check(oep_trust_get_policy(runtime, &require_signatures).error_code == OEP_ERROR_INVALID_STATE,
+          "oep_trust_get_policy requires an open repository");
+    check(oep_trust_set_policy(runtime, 1).error_code == OEP_ERROR_INVALID_STATE,
+          "oep_trust_set_policy requires an open repository");
+    oep_package_trust_status_t trust_status;
+    check(oep_package_get_trust_status(runtime, "x", &trust_status).error_code == OEP_ERROR_INVALID_STATE,
+          "oep_package_get_trust_status requires an open repository");
+
+    oep_runtime_destroy(runtime);
+}
+
+void test_package_queries_require_open_repository() {
+    OEP_Runtime runtime = oep_runtime_create("0.1.0");
+    oep_runtime_initialize(runtime);
+
+    oep_package_details_t details;
+    check(oep_package_get_info(runtime, "x", &details).error_code == OEP_ERROR_INVALID_STATE,
+          "oep_package_get_info requires an open repository");
+    oep_package_owner_t owner;
+    check(oep_package_locate(runtime, "x", &owner).error_code == OEP_ERROR_INVALID_STATE,
+          "oep_package_locate requires an open repository");
+    oep_package_verify_result_t verify_result;
+    check(oep_package_verify(runtime, "x", &verify_result).error_code == OEP_ERROR_INVALID_STATE,
+          "oep_package_verify requires an open repository");
+    oep_installed_package_list_t list;
+    check(oep_package_search(runtime, "x", &list).error_code == OEP_ERROR_INVALID_STATE,
+          "oep_package_search requires an open repository");
+    oep_object_list_t objects;
+    oep_relationship_list_t relationships;
+    check(oep_package_get_contents(runtime, "x", &objects, &relationships).error_code == OEP_ERROR_INVALID_STATE,
+          "oep_package_get_contents requires an open repository");
+
+    oep_runtime_destroy(runtime);
+}
+
 int main() {
     const std::filesystem::path scratch_dir = std::filesystem::temp_directory_path() / "oep_api_tests";
     std::filesystem::remove_all(scratch_dir);
@@ -1013,6 +1396,13 @@ int main() {
     test_batch_create_relationships(scratch_dir);
     test_batch_participates_in_caller_transaction(scratch_dir);
     test_destroy_closes_an_open_repository(scratch_dir);
+    test_package_install_and_lifecycle_queries(scratch_dir);
+    test_package_queries_require_open_repository();
+    test_transaction_engine_info_and_history(scratch_dir);
+    test_transaction_engine_requires_open_repository();
+    test_trust_store_certificate_lifecycle(scratch_dir);
+    test_package_trust_status_and_unsigned_install(scratch_dir);
+    test_trust_functions_require_open_repository();
 
     std::filesystem::remove_all(scratch_dir);
 

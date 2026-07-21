@@ -337,6 +337,197 @@ oep_relationship_search_result_list_t build_relationship_search_result_list(
     return list;
 }
 
+void zero_package_install_result(oep_package_install_result_t* out_result) {
+    out_result->package_id[0] = '\0';
+    out_result->version[0] = '\0';
+    out_result->objects_created = 0;
+    out_result->relationships_created = 0;
+}
+
+void zero_installed_package_list(oep_installed_package_list_t* out_list) {
+    out_list->items = nullptr;
+    out_list->count = 0;
+}
+
+void populate_installed_package_info(const oep::installer::RepositoryRegistryEntry& record,
+                                      oep_installed_package_info_t* out_info) {
+    oep::api::detail::copy_truncated(record.package_id, out_info->package_id, sizeof(out_info->package_id));
+    oep::api::detail::copy_truncated(record.version, out_info->version, sizeof(out_info->version));
+    oep::api::detail::copy_truncated(record.title, out_info->title, sizeof(out_info->title));
+    oep::api::detail::copy_truncated(record.installed_utc, out_info->installed_utc, sizeof(out_info->installed_utc));
+    oep::api::detail::copy_truncated(record.source, out_info->source, sizeof(out_info->source));
+    out_info->object_count = static_cast<int>(record.object_ids.size());
+    out_info->relationship_count = static_cast<int>(record.relationship_ids.size());
+}
+
+void zero_package_details(oep_package_details_t* out_details) {
+    out_details->package_id[0] = '\0';
+    out_details->version[0] = '\0';
+    out_details->title[0] = '\0';
+    out_details->summary[0] = '\0';
+    out_details->category[0] = '\0';
+    out_details->publisher_id[0] = '\0';
+    out_details->publisher_name[0] = '\0';
+    out_details->installed_utc[0] = '\0';
+    out_details->source[0] = '\0';
+    out_details->installation_path[0] = '\0';
+    out_details->package_hash[0] = '\0';
+    out_details->runtime_state[0] = '\0';
+    out_details->engineering_domain_count = 0;
+    for (int i = 0; i < OEP_MAX_PACKAGE_DOMAINS; ++i) {
+        out_details->engineering_domains[i][0] = '\0';
+    }
+    out_details->object_count = 0;
+    out_details->relationship_count = 0;
+}
+
+void populate_package_details(const oep::installer::RepositoryRegistryEntry& entry,
+                               oep_package_details_t* out_details) {
+    oep::api::detail::copy_truncated(entry.package_id, out_details->package_id, sizeof(out_details->package_id));
+    oep::api::detail::copy_truncated(entry.version, out_details->version, sizeof(out_details->version));
+    oep::api::detail::copy_truncated(entry.title, out_details->title, sizeof(out_details->title));
+    oep::api::detail::copy_truncated(entry.summary, out_details->summary, sizeof(out_details->summary));
+    oep::api::detail::copy_truncated(entry.category, out_details->category, sizeof(out_details->category));
+    oep::api::detail::copy_truncated(entry.publisher_id, out_details->publisher_id,
+                                      sizeof(out_details->publisher_id));
+    oep::api::detail::copy_truncated(entry.publisher_name, out_details->publisher_name,
+                                      sizeof(out_details->publisher_name));
+    oep::api::detail::copy_truncated(entry.installed_utc, out_details->installed_utc,
+                                      sizeof(out_details->installed_utc));
+    oep::api::detail::copy_truncated(entry.source, out_details->source, sizeof(out_details->source));
+    oep::api::detail::copy_truncated(entry.installation_path, out_details->installation_path,
+                                      sizeof(out_details->installation_path));
+    oep::api::detail::copy_truncated(entry.package_hash, out_details->package_hash,
+                                      sizeof(out_details->package_hash));
+    oep::api::detail::copy_truncated(entry.runtime_state, out_details->runtime_state,
+                                      sizeof(out_details->runtime_state));
+
+    const int domain_count = static_cast<int>(entry.engineering_domains.size()) < OEP_MAX_PACKAGE_DOMAINS
+                                 ? static_cast<int>(entry.engineering_domains.size())
+                                 : OEP_MAX_PACKAGE_DOMAINS;
+    out_details->engineering_domain_count = domain_count;
+    for (int i = 0; i < domain_count; ++i) {
+        oep::api::detail::copy_truncated(entry.engineering_domains[static_cast<std::size_t>(i)],
+                                          out_details->engineering_domains[i], OEP_MAX_PACKAGE_DOMAIN_LENGTH);
+    }
+    for (int i = domain_count; i < OEP_MAX_PACKAGE_DOMAINS; ++i) {
+        out_details->engineering_domains[i][0] = '\0';
+    }
+
+    out_details->object_count = static_cast<int>(entry.object_ids.size());
+    out_details->relationship_count = static_cast<int>(entry.relationship_ids.size());
+}
+
+void zero_package_owner(oep_package_owner_t* out_owner) {
+    out_owner->found = 0;
+    out_owner->kind = OEP_OWNED_ENTITY_NONE;
+    out_owner->package_id[0] = '\0';
+    out_owner->version[0] = '\0';
+    out_owner->title[0] = '\0';
+}
+
+void zero_transaction_info(oep_transaction_info_t* out_info) {
+    out_info->active = 0;
+    out_info->transaction_id[0] = '\0';
+    out_info->description[0] = '\0';
+    out_info->journal_entry_count = 0;
+}
+
+void zero_transaction_record_list(oep_transaction_record_list_t* out_list) {
+    out_list->items = nullptr;
+    out_list->count = 0;
+}
+
+void populate_transaction_record(const oep::runtime::TransactionRecord& record,
+                                  oep_transaction_record_t* out_record) {
+    oep::api::detail::copy_truncated(record.transaction_id, out_record->transaction_id,
+                                      sizeof(out_record->transaction_id));
+    oep::api::detail::copy_truncated(oep::runtime::to_string(record.state), out_record->state,
+                                      sizeof(out_record->state));
+    oep::api::detail::copy_truncated(record.description, out_record->description, sizeof(out_record->description));
+    oep::api::detail::copy_truncated(record.opened_utc, out_record->opened_utc, sizeof(out_record->opened_utc));
+    oep::api::detail::copy_truncated(record.closed_utc, out_record->closed_utc, sizeof(out_record->closed_utc));
+    out_record->journal_entry_count = static_cast<int>(record.entries.size());
+}
+
+oep_trust_state_t to_capi_trust_state(oep::installer::TrustState state) {
+    switch (state) {
+        case oep::installer::TrustState::Trusted: return OEP_TRUST_TRUSTED;
+        case oep::installer::TrustState::Unsigned: return OEP_TRUST_UNSIGNED;
+        case oep::installer::TrustState::UnknownPublisher: return OEP_TRUST_UNKNOWN_PUBLISHER;
+        case oep::installer::TrustState::ExpiredCertificate: return OEP_TRUST_EXPIRED_CERTIFICATE;
+        case oep::installer::TrustState::RevokedCertificate: return OEP_TRUST_REVOKED_CERTIFICATE;
+        case oep::installer::TrustState::InvalidSignature: return OEP_TRUST_INVALID_SIGNATURE;
+        case oep::installer::TrustState::Tampered: return OEP_TRUST_TAMPERED;
+    }
+    return OEP_TRUST_INVALID_SIGNATURE;
+}
+
+oep::installer::TrustState from_capi_trust_state_name(const std::string& name) {
+    if (name == "Trusted") return oep::installer::TrustState::Trusted;
+    if (name == "UnknownPublisher") return oep::installer::TrustState::UnknownPublisher;
+    if (name == "ExpiredCertificate") return oep::installer::TrustState::ExpiredCertificate;
+    if (name == "RevokedCertificate") return oep::installer::TrustState::RevokedCertificate;
+    if (name == "InvalidSignature") return oep::installer::TrustState::InvalidSignature;
+    if (name == "Tampered") return oep::installer::TrustState::Tampered;
+    return oep::installer::TrustState::Unsigned;
+}
+
+void zero_publisher_certificate(oep_publisher_certificate_t* out_certificate) {
+    out_certificate->publisher_id[0] = '\0';
+    out_certificate->publisher_name[0] = '\0';
+    out_certificate->public_key_hex[0] = '\0';
+    out_certificate->issued_utc[0] = '\0';
+    out_certificate->expires_utc[0] = '\0';
+    out_certificate->issuer[0] = '\0';
+    out_certificate->version[0] = '\0';
+    out_certificate->fingerprint[0] = '\0';
+    out_certificate->revoked = 0;
+    out_certificate->revoked_utc[0] = '\0';
+}
+
+void populate_publisher_certificate(const oep::installer::PublisherCertificate& certificate,
+                                     oep_publisher_certificate_t* out_certificate) {
+    oep::api::detail::copy_truncated(certificate.publisher_id, out_certificate->publisher_id,
+                                      sizeof(out_certificate->publisher_id));
+    oep::api::detail::copy_truncated(certificate.publisher_name, out_certificate->publisher_name,
+                                      sizeof(out_certificate->publisher_name));
+    oep::api::detail::copy_truncated(certificate.public_key_hex, out_certificate->public_key_hex,
+                                      sizeof(out_certificate->public_key_hex));
+    oep::api::detail::copy_truncated(certificate.issued_utc, out_certificate->issued_utc,
+                                      sizeof(out_certificate->issued_utc));
+    oep::api::detail::copy_truncated(certificate.expires_utc, out_certificate->expires_utc,
+                                      sizeof(out_certificate->expires_utc));
+    oep::api::detail::copy_truncated(certificate.issuer, out_certificate->issuer, sizeof(out_certificate->issuer));
+    oep::api::detail::copy_truncated(certificate.version, out_certificate->version,
+                                      sizeof(out_certificate->version));
+    oep::api::detail::copy_truncated(certificate.fingerprint, out_certificate->fingerprint,
+                                      sizeof(out_certificate->fingerprint));
+    out_certificate->revoked = certificate.revoked ? 1 : 0;
+    oep::api::detail::copy_truncated(certificate.revoked_utc, out_certificate->revoked_utc,
+                                      sizeof(out_certificate->revoked_utc));
+}
+
+void zero_certificate_list(oep_certificate_list_t* out_list) {
+    out_list->items = nullptr;
+    out_list->count = 0;
+}
+
+void zero_package_trust_status(oep_package_trust_status_t* out_status) {
+    out_status->state = OEP_TRUST_UNSIGNED;
+    out_status->fingerprint[0] = '\0';
+}
+
+void zero_package_verify_result(oep_package_verify_result_t* out_result) {
+    out_result->verified = 0;
+    out_result->objects_expected = 0;
+    out_result->objects_present = 0;
+    out_result->relationships_expected = 0;
+    out_result->relationships_present = 0;
+    out_result->archive_available = 0;
+    out_result->archive_hash_matches = 0;
+}
+
 } // namespace
 
 extern "C" {
@@ -1577,6 +1768,749 @@ void oep_batch_create_relationships_result_release(oep_batch_create_relationship
     delete[] result->created.items;
     result->created.items = nullptr;
     result->created.count = 0;
+}
+
+oep_result_t oep_package_install(OEP_Runtime runtime, const char* archive_path,
+                                  oep_package_install_result_t* out_result) {
+    if (out_result != nullptr) {
+        zero_package_install_result(out_result);
+    }
+    if (runtime == nullptr) {
+        return make_error_result(OEP_ERROR_INVALID_ARGUMENT, category_for_code(OEP_ERROR_INVALID_ARGUMENT),
+                                  "runtime handle is null");
+    }
+    if (archive_path == nullptr) {
+        return make_error_result(OEP_ERROR_INVALID_ARGUMENT, category_for_code(OEP_ERROR_INVALID_ARGUMENT),
+                                  "archive_path is null");
+    }
+    try {
+        if (runtime->runtime.state() != oep::runtime::RuntimeState::RepositoryOpen) {
+            return make_error_result(OEP_ERROR_INVALID_STATE, category_for_code(OEP_ERROR_INVALID_STATE),
+                                      "no repository is currently open");
+        }
+        const oep::runtime::RuntimeInstallResult result = runtime->runtime.install_package(archive_path);
+        if (!result.success) {
+            return make_error_result(OEP_ERROR_OPERATION_FAILED, category_for_code(OEP_ERROR_OPERATION_FAILED),
+                                      result.error);
+        }
+        if (out_result != nullptr) {
+            oep::api::detail::copy_truncated(result.package_id, out_result->package_id,
+                                              sizeof(out_result->package_id));
+            oep::api::detail::copy_truncated(result.version, out_result->version, sizeof(out_result->version));
+            out_result->objects_created = result.objects_created;
+            out_result->relationships_created = result.relationships_created;
+        }
+        return make_success_result();
+    } catch (const std::exception& ex) {
+        if (out_result != nullptr) zero_package_install_result(out_result);
+        return make_error_result(OEP_ERROR_INTERNAL, category_for_code(OEP_ERROR_INTERNAL), ex.what());
+    } catch (...) {
+        if (out_result != nullptr) zero_package_install_result(out_result);
+        return make_error_result(OEP_ERROR_INTERNAL, category_for_code(OEP_ERROR_INTERNAL), "unknown internal error");
+    }
+}
+
+oep_result_t oep_package_list_installed(OEP_Runtime runtime, oep_installed_package_list_t* out_list) {
+    if (out_list != nullptr) {
+        zero_installed_package_list(out_list);
+    }
+    if (runtime == nullptr) {
+        return make_error_result(OEP_ERROR_INVALID_ARGUMENT, category_for_code(OEP_ERROR_INVALID_ARGUMENT),
+                                  "runtime handle is null");
+    }
+    if (out_list == nullptr) {
+        return make_error_result(OEP_ERROR_INVALID_ARGUMENT, category_for_code(OEP_ERROR_INVALID_ARGUMENT),
+                                  "out_list is null");
+    }
+    try {
+        if (runtime->runtime.state() != oep::runtime::RuntimeState::RepositoryOpen) {
+            return make_error_result(OEP_ERROR_INVALID_STATE, category_for_code(OEP_ERROR_INVALID_STATE),
+                                      "no repository is currently open");
+        }
+        const oep::runtime::RuntimeInstalledPackagesResult listed = runtime->runtime.list_installed_packages();
+        if (!listed.success) {
+            return make_error_result(OEP_ERROR_OPERATION_FAILED, category_for_code(OEP_ERROR_OPERATION_FAILED),
+                                      listed.error);
+        }
+
+        std::vector<oep::installer::RepositoryRegistryEntry> packages = listed.packages;
+        std::sort(packages.begin(), packages.end(),
+                  [](const oep::installer::RepositoryRegistryEntry& a, const oep::installer::RepositoryRegistryEntry& b) {
+                      return a.package_id < b.package_id;
+                  });
+
+        const int count = static_cast<int>(packages.size());
+        oep_installed_package_info_t* items =
+            count > 0 ? new oep_installed_package_info_t[static_cast<std::size_t>(count)] : nullptr;
+        for (int i = 0; i < count; ++i) {
+            populate_installed_package_info(packages[static_cast<std::size_t>(i)], &items[i]);
+        }
+
+        out_list->items = items;
+        out_list->count = count;
+        return make_success_result();
+    } catch (const std::exception& ex) {
+        return make_error_result(OEP_ERROR_INTERNAL, category_for_code(OEP_ERROR_INTERNAL), ex.what());
+    } catch (...) {
+        return make_error_result(OEP_ERROR_INTERNAL, category_for_code(OEP_ERROR_INTERNAL), "unknown internal error");
+    }
+}
+
+void oep_installed_package_list_release(oep_installed_package_list_t* list) {
+    if (list == nullptr) {
+        return;
+    }
+    delete[] list->items;
+    list->items = nullptr;
+    list->count = 0;
+}
+
+oep_result_t oep_package_get_info(OEP_Runtime runtime, const char* package_id, oep_package_details_t* out_details) {
+    if (out_details != nullptr) {
+        zero_package_details(out_details);
+    }
+    if (runtime == nullptr) {
+        return make_error_result(OEP_ERROR_INVALID_ARGUMENT, category_for_code(OEP_ERROR_INVALID_ARGUMENT),
+                                  "runtime handle is null");
+    }
+    if (package_id == nullptr) {
+        return make_error_result(OEP_ERROR_INVALID_ARGUMENT, category_for_code(OEP_ERROR_INVALID_ARGUMENT),
+                                  "package_id is null");
+    }
+    if (out_details == nullptr) {
+        return make_error_result(OEP_ERROR_INVALID_ARGUMENT, category_for_code(OEP_ERROR_INVALID_ARGUMENT),
+                                  "out_details is null");
+    }
+    try {
+        if (runtime->runtime.state() != oep::runtime::RuntimeState::RepositoryOpen) {
+            return make_error_result(OEP_ERROR_INVALID_STATE, category_for_code(OEP_ERROR_INVALID_STATE),
+                                      "no repository is currently open");
+        }
+        const oep::runtime::RuntimeInstalledPackageResult found = runtime->runtime.get_installed_package(package_id);
+        if (!found.success) {
+            return make_error_result(OEP_ERROR_OPERATION_FAILED, category_for_code(OEP_ERROR_OPERATION_FAILED),
+                                      found.error);
+        }
+        if (!found.installed) {
+            return make_error_result(OEP_ERROR_NOT_FOUND, category_for_code(OEP_ERROR_NOT_FOUND),
+                                      "package '" + std::string(package_id) + "' is not installed");
+        }
+        populate_package_details(found.entry, out_details);
+        return make_success_result();
+    } catch (const std::exception& ex) {
+        zero_package_details(out_details);
+        return make_error_result(OEP_ERROR_INTERNAL, category_for_code(OEP_ERROR_INTERNAL), ex.what());
+    } catch (...) {
+        zero_package_details(out_details);
+        return make_error_result(OEP_ERROR_INTERNAL, category_for_code(OEP_ERROR_INTERNAL), "unknown internal error");
+    }
+}
+
+oep_result_t oep_package_get_contents(OEP_Runtime runtime, const char* package_id, oep_object_list_t* out_objects,
+                                       oep_relationship_list_t* out_relationships) {
+    if (out_objects != nullptr) {
+        zero_object_list(out_objects);
+    }
+    if (out_relationships != nullptr) {
+        zero_relationship_list(out_relationships);
+    }
+    if (runtime == nullptr) {
+        return make_error_result(OEP_ERROR_INVALID_ARGUMENT, category_for_code(OEP_ERROR_INVALID_ARGUMENT),
+                                  "runtime handle is null");
+    }
+    if (package_id == nullptr) {
+        return make_error_result(OEP_ERROR_INVALID_ARGUMENT, category_for_code(OEP_ERROR_INVALID_ARGUMENT),
+                                  "package_id is null");
+    }
+    if (out_objects == nullptr || out_relationships == nullptr) {
+        return make_error_result(OEP_ERROR_INVALID_ARGUMENT, category_for_code(OEP_ERROR_INVALID_ARGUMENT),
+                                  "out_objects/out_relationships must not be null");
+    }
+    try {
+        if (runtime->runtime.state() != oep::runtime::RuntimeState::RepositoryOpen) {
+            return make_error_result(OEP_ERROR_INVALID_STATE, category_for_code(OEP_ERROR_INVALID_STATE),
+                                      "no repository is currently open");
+        }
+        const oep::runtime::RuntimeInstalledPackageResult found = runtime->runtime.get_installed_package(package_id);
+        if (!found.success) {
+            return make_error_result(OEP_ERROR_OPERATION_FAILED, category_for_code(OEP_ERROR_OPERATION_FAILED),
+                                      found.error);
+        }
+        if (!found.installed) {
+            return make_error_result(OEP_ERROR_NOT_FOUND, category_for_code(OEP_ERROR_NOT_FOUND),
+                                      "package '" + std::string(package_id) + "' is not installed");
+        }
+
+        // Load each recorded contribution live from the repository's own
+        // stores; a recorded-but-deleted entity is silently skipped here
+        // (oep_package_verify is the function that reports that
+        // condition explicitly).
+        std::vector<oep::repository::EngineeringObject> objects;
+        for (const std::string& object_id : found.entry.object_ids) {
+            const oep::repository::LoadObjectResult loaded = runtime->runtime.object_store()->load(object_id);
+            if (loaded.success) {
+                objects.push_back(loaded.object);
+            }
+        }
+        std::vector<oep::repository::Relationship> relationships;
+        for (const std::string& relationship_id : found.entry.relationship_ids) {
+            const oep::repository::LoadRelationshipResult loaded =
+                runtime->runtime.relationship_store()->load(relationship_id);
+            if (loaded.success) {
+                relationships.push_back(loaded.relationship);
+            }
+        }
+
+        const int object_count = static_cast<int>(objects.size());
+        oep_object_info_t* object_items =
+            object_count > 0 ? new oep_object_info_t[static_cast<std::size_t>(object_count)] : nullptr;
+        for (int i = 0; i < object_count; ++i) {
+            populate_object_info(objects[static_cast<std::size_t>(i)], &object_items[i]);
+        }
+
+        const int relationship_count = static_cast<int>(relationships.size());
+        oep_relationship_info_t* relationship_items = nullptr;
+        try {
+            relationship_items = relationship_count > 0
+                                     ? new oep_relationship_info_t[static_cast<std::size_t>(relationship_count)]
+                                     : nullptr;
+        } catch (...) {
+            delete[] object_items;
+            throw;
+        }
+        for (int i = 0; i < relationship_count; ++i) {
+            populate_relationship_info(relationships[static_cast<std::size_t>(i)], &relationship_items[i]);
+        }
+
+        out_objects->items = object_items;
+        out_objects->count = object_count;
+        out_relationships->items = relationship_items;
+        out_relationships->count = relationship_count;
+        return make_success_result();
+    } catch (const std::exception& ex) {
+        zero_object_list(out_objects);
+        zero_relationship_list(out_relationships);
+        return make_error_result(OEP_ERROR_INTERNAL, category_for_code(OEP_ERROR_INTERNAL), ex.what());
+    } catch (...) {
+        zero_object_list(out_objects);
+        zero_relationship_list(out_relationships);
+        return make_error_result(OEP_ERROR_INTERNAL, category_for_code(OEP_ERROR_INTERNAL), "unknown internal error");
+    }
+}
+
+oep_result_t oep_package_locate(OEP_Runtime runtime, const char* entity_id, oep_package_owner_t* out_owner) {
+    if (out_owner != nullptr) {
+        zero_package_owner(out_owner);
+    }
+    if (runtime == nullptr) {
+        return make_error_result(OEP_ERROR_INVALID_ARGUMENT, category_for_code(OEP_ERROR_INVALID_ARGUMENT),
+                                  "runtime handle is null");
+    }
+    if (entity_id == nullptr) {
+        return make_error_result(OEP_ERROR_INVALID_ARGUMENT, category_for_code(OEP_ERROR_INVALID_ARGUMENT),
+                                  "entity_id is null");
+    }
+    if (out_owner == nullptr) {
+        return make_error_result(OEP_ERROR_INVALID_ARGUMENT, category_for_code(OEP_ERROR_INVALID_ARGUMENT),
+                                  "out_owner is null");
+    }
+    try {
+        if (runtime->runtime.state() != oep::runtime::RuntimeState::RepositoryOpen) {
+            return make_error_result(OEP_ERROR_INVALID_STATE, category_for_code(OEP_ERROR_INVALID_STATE),
+                                      "no repository is currently open");
+        }
+        const oep::runtime::RuntimePackageOwnerResult found = runtime->runtime.find_package_owner(entity_id);
+        if (!found.success) {
+            return make_error_result(OEP_ERROR_OPERATION_FAILED, category_for_code(OEP_ERROR_OPERATION_FAILED),
+                                      found.error);
+        }
+        if (found.kind != oep::installer::OwnedEntityKind::None) {
+            out_owner->found = 1;
+            out_owner->kind = found.kind == oep::installer::OwnedEntityKind::Object ? OEP_OWNED_ENTITY_OBJECT
+                                                                                     : OEP_OWNED_ENTITY_RELATIONSHIP;
+            oep::api::detail::copy_truncated(found.owner.package_id, out_owner->package_id,
+                                              sizeof(out_owner->package_id));
+            oep::api::detail::copy_truncated(found.owner.version, out_owner->version, sizeof(out_owner->version));
+            oep::api::detail::copy_truncated(found.owner.title, out_owner->title, sizeof(out_owner->title));
+        }
+        return make_success_result();
+    } catch (const std::exception& ex) {
+        zero_package_owner(out_owner);
+        return make_error_result(OEP_ERROR_INTERNAL, category_for_code(OEP_ERROR_INTERNAL), ex.what());
+    } catch (...) {
+        zero_package_owner(out_owner);
+        return make_error_result(OEP_ERROR_INTERNAL, category_for_code(OEP_ERROR_INTERNAL), "unknown internal error");
+    }
+}
+
+oep_result_t oep_package_verify(OEP_Runtime runtime, const char* package_id,
+                                 oep_package_verify_result_t* out_result) {
+    if (out_result != nullptr) {
+        zero_package_verify_result(out_result);
+    }
+    if (runtime == nullptr) {
+        return make_error_result(OEP_ERROR_INVALID_ARGUMENT, category_for_code(OEP_ERROR_INVALID_ARGUMENT),
+                                  "runtime handle is null");
+    }
+    if (package_id == nullptr) {
+        return make_error_result(OEP_ERROR_INVALID_ARGUMENT, category_for_code(OEP_ERROR_INVALID_ARGUMENT),
+                                  "package_id is null");
+    }
+    if (out_result == nullptr) {
+        return make_error_result(OEP_ERROR_INVALID_ARGUMENT, category_for_code(OEP_ERROR_INVALID_ARGUMENT),
+                                  "out_result is null");
+    }
+    try {
+        if (runtime->runtime.state() != oep::runtime::RuntimeState::RepositoryOpen) {
+            return make_error_result(OEP_ERROR_INVALID_STATE, category_for_code(OEP_ERROR_INVALID_STATE),
+                                      "no repository is currently open");
+        }
+        const oep::runtime::RuntimeVerifyPackageResult verified = runtime->runtime.verify_package(package_id);
+        if (!verified.success) {
+            const oep_error_code_t code = verified.error.find("is not installed") != std::string::npos
+                                               ? OEP_ERROR_NOT_FOUND
+                                               : OEP_ERROR_OPERATION_FAILED;
+            return make_error_result(code, category_for_code(code), verified.error);
+        }
+        out_result->verified = verified.verified ? 1 : 0;
+        out_result->objects_expected = verified.objects_expected;
+        out_result->objects_present = verified.objects_present;
+        out_result->relationships_expected = verified.relationships_expected;
+        out_result->relationships_present = verified.relationships_present;
+        out_result->archive_available = verified.archive_available ? 1 : 0;
+        out_result->archive_hash_matches = verified.archive_hash_matches ? 1 : 0;
+        return make_success_result();
+    } catch (const std::exception& ex) {
+        zero_package_verify_result(out_result);
+        return make_error_result(OEP_ERROR_INTERNAL, category_for_code(OEP_ERROR_INTERNAL), ex.what());
+    } catch (...) {
+        zero_package_verify_result(out_result);
+        return make_error_result(OEP_ERROR_INTERNAL, category_for_code(OEP_ERROR_INTERNAL), "unknown internal error");
+    }
+}
+
+oep_result_t oep_package_search(OEP_Runtime runtime, const char* query, oep_installed_package_list_t* out_list) {
+    if (out_list != nullptr) {
+        zero_installed_package_list(out_list);
+    }
+    if (runtime == nullptr) {
+        return make_error_result(OEP_ERROR_INVALID_ARGUMENT, category_for_code(OEP_ERROR_INVALID_ARGUMENT),
+                                  "runtime handle is null");
+    }
+    if (query == nullptr || query[0] == '\0') {
+        return make_error_result(OEP_ERROR_INVALID_ARGUMENT, category_for_code(OEP_ERROR_INVALID_ARGUMENT),
+                                  "query must not be null or empty");
+    }
+    if (out_list == nullptr) {
+        return make_error_result(OEP_ERROR_INVALID_ARGUMENT, category_for_code(OEP_ERROR_INVALID_ARGUMENT),
+                                  "out_list is null");
+    }
+    try {
+        if (runtime->runtime.state() != oep::runtime::RuntimeState::RepositoryOpen) {
+            return make_error_result(OEP_ERROR_INVALID_STATE, category_for_code(OEP_ERROR_INVALID_STATE),
+                                      "no repository is currently open");
+        }
+        const oep::runtime::RuntimeSearchPackagesResult searched = runtime->runtime.search_installed_packages(query);
+        if (!searched.success) {
+            return make_error_result(OEP_ERROR_OPERATION_FAILED, category_for_code(OEP_ERROR_OPERATION_FAILED),
+                                      searched.error);
+        }
+
+        std::vector<oep::installer::RepositoryRegistryEntry> packages = searched.packages;
+        std::sort(packages.begin(), packages.end(),
+                  [](const oep::installer::RepositoryRegistryEntry& a, const oep::installer::RepositoryRegistryEntry& b) {
+                      return a.package_id < b.package_id;
+                  });
+
+        const int count = static_cast<int>(packages.size());
+        oep_installed_package_info_t* items =
+            count > 0 ? new oep_installed_package_info_t[static_cast<std::size_t>(count)] : nullptr;
+        for (int i = 0; i < count; ++i) {
+            populate_installed_package_info(packages[static_cast<std::size_t>(i)], &items[i]);
+        }
+
+        out_list->items = items;
+        out_list->count = count;
+        return make_success_result();
+    } catch (const std::exception& ex) {
+        return make_error_result(OEP_ERROR_INTERNAL, category_for_code(OEP_ERROR_INTERNAL), ex.what());
+    } catch (...) {
+        return make_error_result(OEP_ERROR_INTERNAL, category_for_code(OEP_ERROR_INTERNAL), "unknown internal error");
+    }
+}
+
+oep_result_t oep_transaction_get_info(OEP_Runtime runtime, oep_transaction_info_t* out_info) {
+    if (out_info != nullptr) {
+        zero_transaction_info(out_info);
+    }
+    if (runtime == nullptr) {
+        return make_error_result(OEP_ERROR_INVALID_ARGUMENT, category_for_code(OEP_ERROR_INVALID_ARGUMENT),
+                                  "runtime handle is null");
+    }
+    if (out_info == nullptr) {
+        return make_error_result(OEP_ERROR_INVALID_ARGUMENT, category_for_code(OEP_ERROR_INVALID_ARGUMENT),
+                                  "out_info is null");
+    }
+    try {
+        if (runtime->runtime.state() != oep::runtime::RuntimeState::RepositoryOpen) {
+            return make_error_result(OEP_ERROR_INVALID_STATE, category_for_code(OEP_ERROR_INVALID_STATE),
+                                      "no repository is currently open");
+        }
+        const oep::runtime::RuntimeTransactionInfoResult info = runtime->runtime.current_transaction_info();
+        if (!info.success) {
+            return make_error_result(OEP_ERROR_OPERATION_FAILED, category_for_code(OEP_ERROR_OPERATION_FAILED),
+                                      info.error);
+        }
+        out_info->active = info.active ? 1 : 0;
+        if (info.active) {
+            oep::api::detail::copy_truncated(info.transaction_id, out_info->transaction_id,
+                                              sizeof(out_info->transaction_id));
+            oep::api::detail::copy_truncated(info.description, out_info->description,
+                                              sizeof(out_info->description));
+            out_info->journal_entry_count = info.entry_count;
+        }
+        return make_success_result();
+    } catch (const std::exception& ex) {
+        zero_transaction_info(out_info);
+        return make_error_result(OEP_ERROR_INTERNAL, category_for_code(OEP_ERROR_INTERNAL), ex.what());
+    } catch (...) {
+        zero_transaction_info(out_info);
+        return make_error_result(OEP_ERROR_INTERNAL, category_for_code(OEP_ERROR_INTERNAL), "unknown internal error");
+    }
+}
+
+oep_result_t oep_transaction_history(OEP_Runtime runtime, oep_transaction_record_list_t* out_list) {
+    if (out_list != nullptr) {
+        zero_transaction_record_list(out_list);
+    }
+    if (runtime == nullptr) {
+        return make_error_result(OEP_ERROR_INVALID_ARGUMENT, category_for_code(OEP_ERROR_INVALID_ARGUMENT),
+                                  "runtime handle is null");
+    }
+    if (out_list == nullptr) {
+        return make_error_result(OEP_ERROR_INVALID_ARGUMENT, category_for_code(OEP_ERROR_INVALID_ARGUMENT),
+                                  "out_list is null");
+    }
+    try {
+        if (runtime->runtime.state() != oep::runtime::RuntimeState::RepositoryOpen) {
+            return make_error_result(OEP_ERROR_INVALID_STATE, category_for_code(OEP_ERROR_INVALID_STATE),
+                                      "no repository is currently open");
+        }
+        const oep::runtime::RuntimeTransactionHistoryResult history = runtime->runtime.transaction_history();
+        if (!history.success) {
+            return make_error_result(OEP_ERROR_OPERATION_FAILED, category_for_code(OEP_ERROR_OPERATION_FAILED),
+                                      history.error);
+        }
+
+        const int count = static_cast<int>(history.records.size());
+        oep_transaction_record_t* items =
+            count > 0 ? new oep_transaction_record_t[static_cast<std::size_t>(count)] : nullptr;
+        for (int i = 0; i < count; ++i) {
+            populate_transaction_record(history.records[static_cast<std::size_t>(i)], &items[i]);
+        }
+        out_list->items = items;
+        out_list->count = count;
+        return make_success_result();
+    } catch (const std::exception& ex) {
+        return make_error_result(OEP_ERROR_INTERNAL, category_for_code(OEP_ERROR_INTERNAL), ex.what());
+    } catch (...) {
+        return make_error_result(OEP_ERROR_INTERNAL, category_for_code(OEP_ERROR_INTERNAL), "unknown internal error");
+    }
+}
+
+void oep_transaction_record_list_release(oep_transaction_record_list_t* list) {
+    if (list == nullptr) {
+        return;
+    }
+    delete[] list->items;
+    list->items = nullptr;
+    list->count = 0;
+}
+
+const char* oep_trust_state_to_string(oep_trust_state_t state) {
+    switch (state) {
+        case OEP_TRUST_TRUSTED: return "Trusted";
+        case OEP_TRUST_UNSIGNED: return "Unsigned";
+        case OEP_TRUST_UNKNOWN_PUBLISHER: return "UnknownPublisher";
+        case OEP_TRUST_EXPIRED_CERTIFICATE: return "ExpiredCertificate";
+        case OEP_TRUST_REVOKED_CERTIFICATE: return "RevokedCertificate";
+        case OEP_TRUST_INVALID_SIGNATURE: return "InvalidSignature";
+        case OEP_TRUST_TAMPERED: return "Tampered";
+    }
+    return "InvalidSignature";
+}
+
+oep_result_t oep_trust_add_certificate(OEP_Runtime runtime, const char* publisher_id, const char* publisher_name,
+                                        const char* public_key_hex, const char* issued_utc, const char* expires_utc,
+                                        const char* issuer, const char* version,
+                                        oep_publisher_certificate_t* out_certificate) {
+    if (out_certificate != nullptr) {
+        zero_publisher_certificate(out_certificate);
+    }
+    if (runtime == nullptr) {
+        return make_error_result(OEP_ERROR_INVALID_ARGUMENT, category_for_code(OEP_ERROR_INVALID_ARGUMENT),
+                                  "runtime handle is null");
+    }
+    if (publisher_id == nullptr) {
+        return make_error_result(OEP_ERROR_INVALID_ARGUMENT, category_for_code(OEP_ERROR_INVALID_ARGUMENT),
+                                  "publisher_id is null");
+    }
+    if (public_key_hex == nullptr) {
+        return make_error_result(OEP_ERROR_INVALID_ARGUMENT, category_for_code(OEP_ERROR_INVALID_ARGUMENT),
+                                  "public_key_hex is null");
+    }
+    try {
+        if (runtime->runtime.state() != oep::runtime::RuntimeState::RepositoryOpen) {
+            return make_error_result(OEP_ERROR_INVALID_STATE, category_for_code(OEP_ERROR_INVALID_STATE),
+                                      "no repository is currently open");
+        }
+        oep::installer::PublisherCertificate certificate;
+        certificate.publisher_id = publisher_id;
+        certificate.publisher_name = publisher_name != nullptr ? publisher_name : "";
+        certificate.public_key_hex = public_key_hex;
+        certificate.issued_utc = issued_utc != nullptr ? issued_utc : "";
+        certificate.expires_utc = expires_utc != nullptr ? expires_utc : "";
+        certificate.issuer = issuer != nullptr ? issuer : "";
+        certificate.version = version != nullptr ? version : "";
+
+        const oep::runtime::RuntimeTrustResult added = runtime->runtime.trust_add_certificate(certificate);
+        if (!added.success) {
+            return make_error_result(OEP_ERROR_OPERATION_FAILED, category_for_code(OEP_ERROR_OPERATION_FAILED),
+                                      added.error);
+        }
+        if (out_certificate != nullptr) {
+            const oep::runtime::RuntimeCertificateResult stored = runtime->runtime.trust_get_certificate(publisher_id);
+            if (stored.success && stored.found) {
+                populate_publisher_certificate(stored.certificate, out_certificate);
+            }
+        }
+        return make_success_result();
+    } catch (const std::exception& ex) {
+        zero_publisher_certificate(out_certificate);
+        return make_error_result(OEP_ERROR_INTERNAL, category_for_code(OEP_ERROR_INTERNAL), ex.what());
+    } catch (...) {
+        zero_publisher_certificate(out_certificate);
+        return make_error_result(OEP_ERROR_INTERNAL, category_for_code(OEP_ERROR_INTERNAL), "unknown internal error");
+    }
+}
+
+oep_result_t oep_trust_get_certificate(OEP_Runtime runtime, const char* publisher_id,
+                                        oep_publisher_certificate_t* out_certificate) {
+    if (out_certificate != nullptr) {
+        zero_publisher_certificate(out_certificate);
+    }
+    if (runtime == nullptr) {
+        return make_error_result(OEP_ERROR_INVALID_ARGUMENT, category_for_code(OEP_ERROR_INVALID_ARGUMENT),
+                                  "runtime handle is null");
+    }
+    if (publisher_id == nullptr) {
+        return make_error_result(OEP_ERROR_INVALID_ARGUMENT, category_for_code(OEP_ERROR_INVALID_ARGUMENT),
+                                  "publisher_id is null");
+    }
+    if (out_certificate == nullptr) {
+        return make_error_result(OEP_ERROR_INVALID_ARGUMENT, category_for_code(OEP_ERROR_INVALID_ARGUMENT),
+                                  "out_certificate is null");
+    }
+    try {
+        if (runtime->runtime.state() != oep::runtime::RuntimeState::RepositoryOpen) {
+            return make_error_result(OEP_ERROR_INVALID_STATE, category_for_code(OEP_ERROR_INVALID_STATE),
+                                      "no repository is currently open");
+        }
+        const oep::runtime::RuntimeCertificateResult found = runtime->runtime.trust_get_certificate(publisher_id);
+        if (!found.success) {
+            return make_error_result(OEP_ERROR_OPERATION_FAILED, category_for_code(OEP_ERROR_OPERATION_FAILED),
+                                      found.error);
+        }
+        if (!found.found) {
+            return make_error_result(OEP_ERROR_NOT_FOUND, category_for_code(OEP_ERROR_NOT_FOUND),
+                                      "publisher '" + std::string(publisher_id) + "' has no trusted certificate");
+        }
+        populate_publisher_certificate(found.certificate, out_certificate);
+        return make_success_result();
+    } catch (const std::exception& ex) {
+        zero_publisher_certificate(out_certificate);
+        return make_error_result(OEP_ERROR_INTERNAL, category_for_code(OEP_ERROR_INTERNAL), ex.what());
+    } catch (...) {
+        zero_publisher_certificate(out_certificate);
+        return make_error_result(OEP_ERROR_INTERNAL, category_for_code(OEP_ERROR_INTERNAL), "unknown internal error");
+    }
+}
+
+oep_result_t oep_trust_list_certificates(OEP_Runtime runtime, oep_certificate_list_t* out_list) {
+    if (out_list != nullptr) {
+        zero_certificate_list(out_list);
+    }
+    if (runtime == nullptr) {
+        return make_error_result(OEP_ERROR_INVALID_ARGUMENT, category_for_code(OEP_ERROR_INVALID_ARGUMENT),
+                                  "runtime handle is null");
+    }
+    if (out_list == nullptr) {
+        return make_error_result(OEP_ERROR_INVALID_ARGUMENT, category_for_code(OEP_ERROR_INVALID_ARGUMENT),
+                                  "out_list is null");
+    }
+    try {
+        if (runtime->runtime.state() != oep::runtime::RuntimeState::RepositoryOpen) {
+            return make_error_result(OEP_ERROR_INVALID_STATE, category_for_code(OEP_ERROR_INVALID_STATE),
+                                      "no repository is currently open");
+        }
+        const oep::runtime::RuntimeCertificateListResult listed = runtime->runtime.trust_list_certificates();
+        if (!listed.success) {
+            return make_error_result(OEP_ERROR_OPERATION_FAILED, category_for_code(OEP_ERROR_OPERATION_FAILED),
+                                      listed.error);
+        }
+        const int count = static_cast<int>(listed.certificates.size());
+        oep_publisher_certificate_t* items =
+            count > 0 ? new oep_publisher_certificate_t[static_cast<std::size_t>(count)] : nullptr;
+        for (int i = 0; i < count; ++i) {
+            populate_publisher_certificate(listed.certificates[static_cast<std::size_t>(i)], &items[i]);
+        }
+        out_list->items = items;
+        out_list->count = count;
+        return make_success_result();
+    } catch (const std::exception& ex) {
+        return make_error_result(OEP_ERROR_INTERNAL, category_for_code(OEP_ERROR_INTERNAL), ex.what());
+    } catch (...) {
+        return make_error_result(OEP_ERROR_INTERNAL, category_for_code(OEP_ERROR_INTERNAL), "unknown internal error");
+    }
+}
+
+void oep_certificate_list_release(oep_certificate_list_t* list) {
+    if (list == nullptr) {
+        return;
+    }
+    delete[] list->items;
+    list->items = nullptr;
+    list->count = 0;
+}
+
+oep_result_t oep_trust_revoke_certificate(OEP_Runtime runtime, const char* publisher_id) {
+    if (runtime == nullptr) {
+        return make_error_result(OEP_ERROR_INVALID_ARGUMENT, category_for_code(OEP_ERROR_INVALID_ARGUMENT),
+                                  "runtime handle is null");
+    }
+    if (publisher_id == nullptr) {
+        return make_error_result(OEP_ERROR_INVALID_ARGUMENT, category_for_code(OEP_ERROR_INVALID_ARGUMENT),
+                                  "publisher_id is null");
+    }
+    try {
+        if (runtime->runtime.state() != oep::runtime::RuntimeState::RepositoryOpen) {
+            return make_error_result(OEP_ERROR_INVALID_STATE, category_for_code(OEP_ERROR_INVALID_STATE),
+                                      "no repository is currently open");
+        }
+        const oep::runtime::RuntimeCertificateResult existing = runtime->runtime.trust_get_certificate(publisher_id);
+        if (existing.success && !existing.found) {
+            return make_error_result(OEP_ERROR_NOT_FOUND, category_for_code(OEP_ERROR_NOT_FOUND),
+                                      "publisher '" + std::string(publisher_id) + "' has no trusted certificate");
+        }
+        const oep::runtime::RuntimeTrustResult revoked = runtime->runtime.trust_revoke_certificate(publisher_id);
+        if (!revoked.success) {
+            return make_error_result(OEP_ERROR_OPERATION_FAILED, category_for_code(OEP_ERROR_OPERATION_FAILED),
+                                      revoked.error);
+        }
+        return make_success_result();
+    } catch (const std::exception& ex) {
+        return make_error_result(OEP_ERROR_INTERNAL, category_for_code(OEP_ERROR_INTERNAL), ex.what());
+    } catch (...) {
+        return make_error_result(OEP_ERROR_INTERNAL, category_for_code(OEP_ERROR_INTERNAL), "unknown internal error");
+    }
+}
+
+oep_result_t oep_trust_get_policy(OEP_Runtime runtime, int* out_require_signatures) {
+    if (out_require_signatures != nullptr) {
+        *out_require_signatures = 0;
+    }
+    if (runtime == nullptr) {
+        return make_error_result(OEP_ERROR_INVALID_ARGUMENT, category_for_code(OEP_ERROR_INVALID_ARGUMENT),
+                                  "runtime handle is null");
+    }
+    if (out_require_signatures == nullptr) {
+        return make_error_result(OEP_ERROR_INVALID_ARGUMENT, category_for_code(OEP_ERROR_INVALID_ARGUMENT),
+                                  "out_require_signatures is null");
+    }
+    try {
+        if (runtime->runtime.state() != oep::runtime::RuntimeState::RepositoryOpen) {
+            return make_error_result(OEP_ERROR_INVALID_STATE, category_for_code(OEP_ERROR_INVALID_STATE),
+                                      "no repository is currently open");
+        }
+        const oep::runtime::RuntimeTrustPolicyResult policy = runtime->runtime.trust_get_policy();
+        if (!policy.success) {
+            return make_error_result(OEP_ERROR_OPERATION_FAILED, category_for_code(OEP_ERROR_OPERATION_FAILED),
+                                      policy.error);
+        }
+        *out_require_signatures = policy.require_signatures ? 1 : 0;
+        return make_success_result();
+    } catch (const std::exception& ex) {
+        return make_error_result(OEP_ERROR_INTERNAL, category_for_code(OEP_ERROR_INTERNAL), ex.what());
+    } catch (...) {
+        return make_error_result(OEP_ERROR_INTERNAL, category_for_code(OEP_ERROR_INTERNAL), "unknown internal error");
+    }
+}
+
+oep_result_t oep_trust_set_policy(OEP_Runtime runtime, int require_signatures) {
+    if (runtime == nullptr) {
+        return make_error_result(OEP_ERROR_INVALID_ARGUMENT, category_for_code(OEP_ERROR_INVALID_ARGUMENT),
+                                  "runtime handle is null");
+    }
+    try {
+        if (runtime->runtime.state() != oep::runtime::RuntimeState::RepositoryOpen) {
+            return make_error_result(OEP_ERROR_INVALID_STATE, category_for_code(OEP_ERROR_INVALID_STATE),
+                                      "no repository is currently open");
+        }
+        const oep::runtime::RuntimeTrustResult set = runtime->runtime.trust_set_policy(require_signatures != 0);
+        if (!set.success) {
+            return make_error_result(OEP_ERROR_OPERATION_FAILED, category_for_code(OEP_ERROR_OPERATION_FAILED),
+                                      set.error);
+        }
+        return make_success_result();
+    } catch (const std::exception& ex) {
+        return make_error_result(OEP_ERROR_INTERNAL, category_for_code(OEP_ERROR_INTERNAL), ex.what());
+    } catch (...) {
+        return make_error_result(OEP_ERROR_INTERNAL, category_for_code(OEP_ERROR_INTERNAL), "unknown internal error");
+    }
+}
+
+oep_result_t oep_package_get_trust_status(OEP_Runtime runtime, const char* package_id,
+                                           oep_package_trust_status_t* out_status) {
+    if (out_status != nullptr) {
+        zero_package_trust_status(out_status);
+    }
+    if (runtime == nullptr) {
+        return make_error_result(OEP_ERROR_INVALID_ARGUMENT, category_for_code(OEP_ERROR_INVALID_ARGUMENT),
+                                  "runtime handle is null");
+    }
+    if (package_id == nullptr) {
+        return make_error_result(OEP_ERROR_INVALID_ARGUMENT, category_for_code(OEP_ERROR_INVALID_ARGUMENT),
+                                  "package_id is null");
+    }
+    if (out_status == nullptr) {
+        return make_error_result(OEP_ERROR_INVALID_ARGUMENT, category_for_code(OEP_ERROR_INVALID_ARGUMENT),
+                                  "out_status is null");
+    }
+    try {
+        if (runtime->runtime.state() != oep::runtime::RuntimeState::RepositoryOpen) {
+            return make_error_result(OEP_ERROR_INVALID_STATE, category_for_code(OEP_ERROR_INVALID_STATE),
+                                      "no repository is currently open");
+        }
+        const oep::runtime::RuntimeInstalledPackageResult found = runtime->runtime.get_installed_package(package_id);
+        if (!found.success) {
+            return make_error_result(OEP_ERROR_OPERATION_FAILED, category_for_code(OEP_ERROR_OPERATION_FAILED),
+                                      found.error);
+        }
+        if (!found.installed) {
+            return make_error_result(OEP_ERROR_NOT_FOUND, category_for_code(OEP_ERROR_NOT_FOUND),
+                                      "package '" + std::string(package_id) + "' is not installed");
+        }
+        out_status->state = to_capi_trust_state(from_capi_trust_state_name(found.entry.trust_status));
+        oep::api::detail::copy_truncated(found.entry.trust_fingerprint, out_status->fingerprint,
+                                          sizeof(out_status->fingerprint));
+        return make_success_result();
+    } catch (const std::exception& ex) {
+        zero_package_trust_status(out_status);
+        return make_error_result(OEP_ERROR_INTERNAL, category_for_code(OEP_ERROR_INTERNAL), ex.what());
+    } catch (...) {
+        zero_package_trust_status(out_status);
+        return make_error_result(OEP_ERROR_INTERNAL, category_for_code(OEP_ERROR_INTERNAL), "unknown internal error");
+    }
 }
 
 } // extern "C"

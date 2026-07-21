@@ -113,7 +113,7 @@ int TemplateCommand::list(const std::vector<std::string>& args) const {
     if (result.templates.empty()) {
         std::cout << "No templates found.\n";
     } else {
-        for (const oep::exchange::TemplateManifest& manifest : result.templates) {
+        for (const oep::archive::TemplateManifest& manifest : result.templates) {
             std::cout << manifest.template_id << "\t" << manifest.template_name << "\t" << manifest.version << "\n";
         }
     }

@@ -12,11 +12,14 @@
 #include "commands/init_command.hpp"
 #include "commands/object_command.hpp"
 #include "commands/open_command.hpp"
+#include "commands/package_command.hpp"
 #include "commands/packages_command.hpp"
 #include "commands/relationship_command.hpp"
 #include "commands/search_command.hpp"
 #include "commands/status_command.hpp"
 #include "commands/template_command.hpp"
+#include "commands/transaction_command.hpp"
+#include "commands/trust_command.hpp"
 #include "commands/validate_command.hpp"
 #include "commands/version_command.hpp"
 
@@ -27,6 +30,7 @@ int main(int argc, char** argv) {
     registry.register_command(std::make_unique<oep::cli::commands::OpenCommand>());
     registry.register_command(std::make_unique<oep::cli::commands::ValidateCommand>());
     registry.register_command(std::make_unique<oep::cli::commands::PackagesCommand>());
+    registry.register_command(std::make_unique<oep::cli::commands::PackageCommand>());
     registry.register_command(std::make_unique<oep::cli::commands::StatusCommand>());
     registry.register_command(std::make_unique<oep::cli::commands::ObjectCommand>());
     registry.register_command(std::make_unique<oep::cli::commands::RelationshipCommand>());
@@ -36,6 +40,8 @@ int main(int argc, char** argv) {
     registry.register_command(std::make_unique<oep::cli::commands::ImportCommand>());
     registry.register_command(std::make_unique<oep::cli::commands::TemplateCommand>());
     registry.register_command(std::make_unique<oep::cli::commands::BatchCommand>());
+    registry.register_command(std::make_unique<oep::cli::commands::TransactionCommand>());
+    registry.register_command(std::make_unique<oep::cli::commands::TrustCommand>());
     registry.register_command(std::make_unique<oep::cli::commands::HelpCommand>(registry));
 
     std::vector<std::string> args(argv + 1, argv + argc);

@@ -2,172 +2,80 @@
 # TASK.md
 ## Open Engineering Platform (OEP)
 
-Task ID: 000030
+Task ID: 000034 (WP-REP-004)
 
-Status: Complete
+Status: Complete — awaiting user review/approval
 
 ---
 
 # Current Task
 
-Implement Public Batch Mutation per Work Package 014 / TASK-000030 (fourth of four tasks; follows TASK-000027/Object Mutation, TASK-000028/Relationship Mutation, and TASK-000029/Transactions, per instruction to complete the whole work package before stopping).
-
-This delivers `oep_batch_create_objects`/`oep_batch_create_relationships`, allowing multiple object or relationship creations to execute as one deterministic, all-or-nothing unit through the Public C API — the first write-capable surface Foundation has ever exposed externally.
+Implement WP-REP-004 — Foundation Repository Runtime, Vertical Slice 4: the **Repository Trust & Signing Subsystem**, implementing PKG-005 (Package Trust & Digital Signature): offline Ed25519 signature verification, a per-repository Trust Store of locally trusted publisher certificates, and package trust verification integrated into the installation pipeline — running strictly before any Repository Transaction begins.
 
 ---
 
 # Context
 
-TASK-000027, TASK-000028, and TASK-000029 are complete, built, and tested.
+WP-REP-001 installed unsigned packages by design; WP-REP-002 added the Repository Registry; WP-REP-003 made installation atomic via the Repository Transaction Engine. WP-REP-004 closes the trust gap both explicitly documented: every package is now cryptographically verified before it can touch the repository. PKG-001 through PKG-006, OEP-ARCH-002, CLAUDE.md, and PROJECT_MEMORY/STATUS were read before implementation.
 
-Before implementation, the existing Foundation architecture, `FoundationRuntime`'s current interface, and the Public C API (Work Packages 011–013) were reviewed per the work package's explicit instruction. The review found one real gap, not a conflict: `FoundationRuntime` exposed `object_store()`/`relationship_store()` as read-oriented accessors (returning `const ObjectStore*`/`const RelationshipStore*`) but had no mutation entry points of its own. This is exactly the gap the work package's architectural guidance anticipated ("every Public C API mutation function shall delegate through Foundation Runtime," "stores shall never become directly accessible through the Public API") — filling it with new `FoundationRuntime` methods, rather than having the Public API reach `ObjectStore`/`RelationshipStore` directly, was the correct and intended resolution, not an independent architectural solution requiring review. No other conflict, ambiguity, or missing capability was found; implementation proceeded without stopping for review.
+**Design decisions:**
 
-Batch mutation is built entirely on the transaction primitives from TASK-000029 (`begin_transaction`/`commit_transaction`/`rollback_transaction`) rather than a second rollback mechanism — every spec is created in array order inside a transaction, which is begun and committed automatically if the caller had none active, or which the batch simply participates in if the caller already had one active.
+- **Hand-rolled Ed25519 verification** (`platform/installer/ed25519.hpp/.cpp`), per this codebase's established no-third-party-dependency convention (hand-rolled SHA-256/JSON parser/UUID generation already exist). Verify-only, deliberately: Foundation never signs anything and holds no private key. Built on a new hand-rolled SHA-512 (`sha512.hpp/.cpp`, distinct from the existing SHA-256 used for package hashing — Ed25519/RFC 8032 requires SHA-512). Both were validated against their respective NIST/RFC published test vectors before anything was built on top of them.
+- **Signing lives in `oep_exchange`**, not Foundation: `@oep-exchange/signing` was implemented for real (previously a TASK-EXC-0001 scaffold) using Node's built-in `node:crypto` — no new npm dependency either. The two Ed25519 implementations (C++ verifier, Node signer) are genuinely independent, cross-checked by installing a real signed archive end-to-end, not just unit-testing against shared fixtures.
+- **Trust verification runs before any Repository Transaction begins** — the user's explicit, load-bearing requirement. `install_package` calls `verify_package_trust` immediately after confirming the package isn't already installed, strictly before `open_transaction_internal`. A trust-rejected install opens no transaction and writes no journal record — proven by a dedicated test.
+- **Backward compatibility preserved by pure C API addition, not modification**: `oep_package_install_result_t` and `oep_package_details_t` (WP-REP-002) were left byte-for-byte unchanged; trust status is queried through a new function (`oep_package_get_trust_status`) and a new struct, following the same "never modify an existing struct" convention WP-REP-002/003 established. `OEP_API_VERSION` 7 → 8, `OEP_ABI_VERSION` unchanged at 1. Unsigned packages still install by default (`TrustStore` policy `require_signatures` defaults to `false`), preserving WP-REP-001–003's behavior exactly.
 
 ---
 
 # Objectives
 
-Complete the following tasks only.
+## Objective 1 — Repository Trust & Signing subsystem
+Hand-rolled SHA-512 and Ed25519 verification (RFC 8032), tested against NIST/RFC vectors. `verify_package_trust` (`package_verifier.hpp/.cpp`) implements PKG-005 §11's pipeline: structure → content hashes (every archive entry outside `signatures/`, per §9/§10 — nothing in the payload exempt) → certificate → signature → `TrustState` (`Trusted`/`Unsigned`/`UnknownPublisher`/`ExpiredCertificate`/`RevokedCertificate`/`InvalidSignature`/`Tampered`).
 
-## Objective 1
+## Objective 2 — Trust Store
+`TrustStore` (`trust_store.hpp/.cpp`): locally trusted publisher certificates persisted under `<repository>/settings/trust/` (one JSON file per publisher, plus a policy file), entirely offline (PKG-005 §3) — no certificate authority, no online revocation feed. `add_certificate`/`get_certificate`/`list_certificates`/`revoke_certificate` (kept, marked revoked, per §12/§13's retained-history model) plus `get_policy`/`set_policy`.
 
-Add `oep_object_create_spec_t`/`oep_relationship_create_spec_t` (input-only, `const char*`-based, no ownership transfer) and `oep_batch_create_objects_result_t`/`oep_batch_create_relationships_result_t` (output, reusing the same allocate-once/release-once ownership model as `oep_object_list_t`/`oep_relationship_list_t`) to `oep_api.h`.
+## Objective 3 — Installation pipeline integration
+`FoundationRuntime::install_package` verifies trust before opening any transaction. Rejection states abort the install with nothing extracted and nothing journaled. On success, `RepositoryRegistryEntry` gains `trust_status`/`trust_fingerprint`, and `RuntimeInstallResult` gains `trust_status`.
 
----
+## Objective 4 — Foundation Runtime
+Six new pass-through methods (`trust_add_certificate`/`trust_get_certificate`/`trust_list_certificates`/`trust_revoke_certificate`/`trust_get_policy`/`trust_set_policy`) plus a `trust_store()` accessor. These are local writes to `settings/trust/`, not Repository Transactions.
 
-## Objective 2
+## Objective 5 — Public C API
+`oep_trust_add_certificate`/`_get_certificate`/`_list_certificates`(+release)/`_revoke_certificate`/`_get_policy`/`_set_policy`, `oep_package_get_trust_status`, `oep_trust_state_to_string`, with new `oep_trust_state_t`/`oep_publisher_certificate_t`/`oep_certificate_list_t`/`oep_package_trust_status_t`. `OEP_API_VERSION` 8.
 
-Add `oep_batch_create_objects`/`oep_batch_create_relationships`, backed by new `FoundationRuntime::batch_create_objects`/`batch_create_relationships` methods that loop over the transaction primitives in array order.
+## Objective 6 — CLI
+New `oep trust trust|list|revoke|policy` command. `oep package info` now shows Trust Status and fingerprint. `oep package install`'s stale "not transactional" note (already obsolete since WP-REP-003) removed.
 
----
-
-## Objective 3
-
-Ensure execution order is deterministic (array order = creation order = the order reported back in `created`) and that any failure rolls back the complete batch — and, if the caller already had a transaction active, everything else in that transaction too, since the transaction is the true unit of rollback.
-
----
-
-## Objective 4
-
-Update `platform/api/README.md`, `platform/runtime/README.md`, and (new) `platform/api/MUTATION_API.md` covering object mutation, relationship mutation, transactions, and batch mutation together, per the work package's consolidated documentation requirement.
-
----
-
-## Objective 5
-
-Write a standalone C API test program (`platform/api/manual_test/capi_manual_test.c`, compiled as plain C) exercising every mutation, transaction, and batch scenario the work package's Verification section lists, and add corresponding automated unit tests to `tests/api/oep_api_tests.cpp`.
+## Objective 7 — Studio compatibility
+Foundation Bridge FFI bindings for all seven new functions (`PublisherCertificate`/`PackageTrustStatus`/`TrustState` Dart models, seven `FoundationBridge` methods); `flutter analyze`/`flutter test` verified.
 
 ---
 
 # Explicitly Out of Scope
 
-Do not implement:
-
-- Partial-patch update semantics (update remains a full-record replace of the mutable fields, matching `ObjectStore::update`/`RelationshipStore::update`'s own existing contract)
-- Bulk update or bulk delete (only bulk *create*, per the spec's explicit "Batch Object Create, Batch Relationship Create")
-- Nested transactions
-- Any change to `FoundationRuntime`'s existing read-only Service Registry accessors
-- Any Studio-side change
-- Any CLI-visible change (`oep relationship`/`oep search`/etc. behavior is unchanged)
-
-These systems belong to future tasks or are explicitly excluded by the work package.
-
----
-
-# Deliverables
-
-- `oep_object_create`/`oep_object_update`/`oep_object_delete` (TASK-000027)
-- `oep_relationship_create`/`oep_relationship_update`/`oep_relationship_delete` (TASK-000028)
-- `oep_transaction_begin`/`_commit`/`_rollback`/`_is_active` (TASK-000029)
-- `oep_batch_create_objects`/`oep_batch_create_relationships` (TASK-000030)
-- `FoundationRuntime::create_object`/`update_object`/`delete_object`, `create_relationship`/`update_relationship`/`delete_relationship`, `begin_transaction`/`commit_transaction`/`rollback_transaction`/`transaction_active`, `batch_create_objects`/`batch_create_relationships`
-- `platform/api/manual_test/capi_manual_test.c` (new C-language build target)
-- `platform/api/MUTATION_API.md` (new)
-- Updated `platform/api/README.md`, `platform/runtime/README.md`
-- Expanded `tests/api/oep_api_tests.cpp`
-
----
-
-# Acceptance Criteria
-
-This task is complete only when:
-
-- The project builds successfully, including the new plain-C manual test target.
-- Object creation, update, and deletion all function through the Public C API.
-- Relationship creation, update, and deletion all function through the Public C API.
-- Transaction rollback (explicit and automatic-on-failure) is deterministic and correctly reversible.
-- Batch mutation preserves execution order and rolls back completely on any failure.
-- No store is directly reachable through the Public API; every mutation delegates through `FoundationRuntime`.
-- No native exception crosses the API boundary under any tested failure condition.
-- `platform/api/README.md`, `platform/runtime/README.md`, and `platform/api/MUTATION_API.md` are complete.
-- A full clean rebuild succeeds and the complete regression suite passes.
-- The standalone C manual verification program passes every check.
-- Existing CLI commands (`oep relationship`, `oep search`, and others) show no regression.
-
----
-
-# Engineering Expectations
-
-Favor readability.
-
-Favor maintainability.
-
-Favor simplicity.
-
-No external dependency; mutation, transactions, and batch mutation are all built from `ObjectStore`/`RelationshipStore` methods that already existed before this work package.
-
-Avoid speculative implementation (no partial-patch updates, no bulk update/delete, no nested transactions, no cross-repository transactions).
-
----
-
-# Completion Checklist
-
-Before marking this task complete, verify:
-
-✓ Build succeeds (including the new C-language manual test target)
-
-✓ Full regression suite passes
-
-✓ Standalone C API manual verification program passes
-
-✓ Documentation updated (`platform/api/README.md`, `platform/runtime/README.md`, `platform/api/MUTATION_API.md`)
-
-✓ Project structure preserved
-
-✓ Architecture unchanged (no store directly reachable through the Public API; Runtime remains the sole orchestration layer)
-
-✓ Acceptance criteria satisfied
-
----
-
-# After Completion
-
-Update:
-
-- PROJECT_STATUS.md
-- CURRENT_SPRINT.md
-
-Stop and await formal review of Work Package 014 (TASK-000027 + TASK-000028 + TASK-000029 + TASK-000030), per instructions.
+Dependency resolution, update, uninstall, merge, networking, online trust services — per the user's exclusion list. Also explicitly deferred, named rather than silently absent: certificate authority chains and enterprise trust policies (PKG-005 §14), multiple signatures per package (§15), repository-wide re-audit/revalidation of already-installed packages (§16), and repair transactions for corrupted packages (§17) — all require capabilities (update, networking, or the merge engine) this Work Package excludes.
 
 ---
 
 # Verification Record
 
-**Full clean rebuild:** `rm -rf build` followed by `cmake -S . -B build -G Ninja` and `cmake --build build` with MSVC 19.51 (Visual Studio Build Tools 18), `LANGUAGES CXX C` (C enabled for this work package's manual test program) — 101/101 build steps succeeded, producing every library (`oep_repository`, `oep_packages`, `oep_search`, `oep_validation`, `oep_exchange`, `oep_runtime`, `oep_api`, `oep_cli_core`), the `oep` executable, the new `oep_capi_manual_test` executable, and all 23 CTest-registered test executables.
+**Build:** WSL Ubuntu CMake 3.28.3 / g++ 13.3.0 (no Windows-native C++ toolchain on this host — same environmental limitation as Tasks 000031–000033; MSVC not independently re-verified). Full build succeeded with no errors.
 
-**Regression suite:** `ctest --output-on-failure` — 23/23 test suites passed (100%), including the substantially expanded `oep_api_tests` suite.
+**A real, pre-existing bug was found and fixed in shared JSON infrastructure**: `platform/repository/json_value.cpp`'s `serialize()` never actually wrote `Bool`/`Number` values (a silent no-op, present since the JSON module was first written, undiscovered because nothing had ever serialized a boolean before `TrustStore`'s `revoked` field). Fixed (`as_bool()`/`as_number()` accessors added, `write_value` writes `true`/`false`/the numeric literal); caught immediately by the new `oep_trust_store_tests`' first run, before anything was built on top of it.
 
-**Manual verification (standalone C API test program):** `platform/api/manual_test/capi_manual_test.c`, compiled as plain C, run against a freshly-built repository fixture — **54/54 checks passed**, covering object creation/update/deletion, relationship creation/update/deletion, explicit transaction rollback, automatic rollback on a mid-transaction failure, and batch mutation (both full success with execution-order preservation and rollback-on-failure with correct `failed_index`).
+**A real bug was found and fixed in `@oep-exchange/signing`** (`oep_exchange`, not `oep_foundation`): its file-sort used `String.prototype.localeCompare`, which orders certain paths (e.g. `"LICENSE.md"` vs. `"licenses/LICENSE.md"`) differently than C++'s `std::string::operator<` — the exact order Foundation's verifier reconstructs its content-hash payload with. A genuinely signed `engineering-demo.oep` installed as `InvalidSignature` until this was found (during end-to-end validation, not unit testing) and fixed to sort byte-wise; a regression test now pins the correct order.
 
-**CLI regression check:** manually re-ran `oep init`, `oep object create`/`list`, `oep relationship create`/`list`, `oep search`/`oep search objects`/`oep search relationships`, `oep batch create`, `oep validate`, `oep export`, `oep version`, and `oep --help` against a real generated repository — output unchanged from prior work packages.
+**Regression suite:** 38/38 CTest suites pass, including new `oep_sha512_tests`, `oep_ed25519_tests` (RFC 8032 §7.1 vectors plus tamper/malleability rejection cases), `oep_trust_store_tests`, `oep_package_verifier_tests` (trusted/unsigned/unknown-publisher/revoked/tampered/extra-entry/bad-signature/unsupported-algorithm), `oep_trust_integration_tests` (Runtime-level, including the "no transaction opened on trust rejection" proof), and `oep_trust_command_tests`; extended `oep_api_tests`.
 
-**Architectural observations and decisions:**
+**Signing package (`oep_exchange`):** `@oep-exchange/signing` — 12/12 vitest cases pass, including the byte-wise-ordering regression test above.
 
-- **No architectural conflict required stopping for review.** The pre-implementation review (explicitly required by this work package) found `FoundationRuntime` had no mutation surface at all — this was recognized as the gap the work package's own architectural guidance instructed how to fill (new Runtime methods, never direct store access from the API), not an ambiguity or conflict. This is recorded here per the work package's instruction to document architectural observations even when none blocked progress.
-- **Transactions are an in-memory undo log, not a second persistence mechanism.** `ObjectStore`/`RelationshipStore` gained no staged/uncommitted-write concept; every mutation still writes to disk immediately, transaction or not. A transaction only adds bookkeeping: while active, `FoundationRuntime` records what would undo each successful mutation, and `rollback_transaction` replays that log in reverse using the stores' own pre-existing `remove`/`update`/`restore` methods. This keeps determinism trivial (the undo path is exactly the forward path, run backward with recorded snapshots) and required no change to the Repository layer at all.
-- **`restore()` is reused, not reinvented, for rollback.** Undoing a delete calls `ObjectStore::restore`/`RelationshipStore::restore` — the exact mechanism Import and Templates (Work Package 009) already established for writing a record back with its original identity intact. This is a direct instance of "reuse existing Runtime/ObjectStore/RelationshipStore functionality whenever possible."
-- **Automatic rollback on any mutation failure inside an active transaction** is a strict, literal reading of "Failures shall: Abort transaction, Roll back changes" — a mutation failure (even one unrelated to the earlier successful mutations in the same transaction, e.g. an unrelated validation error) tears down the whole transaction rather than leaving it open for the caller to decide. This was a deliberate choice to keep transaction state always unambiguous (never partially-failed-but-still-open) rather than a softer "log and continue" alternative the spec's wording does not support.
-- **Batch mutation is sugar over transactions, not a parallel mechanism.** `batch_create_objects`/`batch_create_relationships` contain no rollback logic of their own — they call `create_object`/`create_relationship` in a loop, and rely entirely on the automatic-rollback-on-failure behavior above. A consequence, documented in `MUTATION_API.md`: if a batch is called while the caller already has a transaction active, a batch failure rolls back the caller's entire transaction, not just the batch's own entries — the transaction, not the batch call, is the true unit of rollback, and this is intentional rather than an oversight.
-- **The standalone C manual test program is a genuine architectural verification, not just a formality.** Compiling `capi_manual_test.c` as plain C (`LANGUAGES CXX C` added to the top-level `CMakeLists.txt`) and linking it against `oep_api` (implemented in C++) proves the ABI surface really is C-callable, not merely C-styled in a way only a C++ translation unit could actually consume — a meaningfully stronger check than a C++ test file including a C-compatible header.
-- Two implementation-time compile errors were caught and fixed by the build itself: (1) two `foundation_runtime.cpp` return statements returned a store-level result type where the enclosing method's own `RuntimeResult` was expected (same shape, different type — C++ has no implicit conversion between them); (2) a literal `*/` occurring inside prose inside a block comment in `oep_api.h` (`oep_object_*/oep_relationship_*`) terminated the comment early, corrupting the rest of the header — reworded to avoid the character sequence. Both are noted since they're easy mistakes to repeat in future work packages that add prose-heavy comments referencing multiple `oep_*` function name prefixes.
+**End-to-end CLI validation:** a real Ed25519 key pair was generated (`oep-package keygen`), `engineering-demo.oep`'s source tree was actually signed (`oep-package sign`) and rebuilt (Stored compression, as prior work packages require), then installed against a fresh `oep init` repository: (1) install rejected as `UnknownPublisher` before the publisher was trusted, with an empty transaction journal proving trust ran first; (2) `oep trust trust` + reinstall succeeded, `oep package info` showing `Trust Status: Trusted` with the correct fingerprint, and exactly one Committed transaction; (3) a second repository with the publisher trusted-then-revoked rejected the same install as `RevokedCertificate`. All steps passed.
+
+**Studio:** `flutter analyze` — 0 new issues (2 pre-existing unrelated lints); `flutter test` — all 460 tests passed (2 pre-existing skips).
+
+---
+
+# After Completion
+
+Stop and await formal review/approval of WP-REP-004 before beginning WP-REP-005, per the user's explicit instruction.

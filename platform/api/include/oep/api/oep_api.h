@@ -30,7 +30,7 @@ extern "C" {
 
 /* The Public C API's own version. Incremented whenever a function or
    structure is added, changed, or removed. */
-#define OEP_API_VERSION 4
+#define OEP_API_VERSION 8
 
 /* The ABI version. Incremented only when a change would break binary
    compatibility with a previously compiled caller (e.g. a struct
@@ -732,6 +732,453 @@ oep_result_t oep_batch_create_relationships(OEP_Runtime runtime, const oep_relat
    zeroes it. Safe to call on a zero-initialized or already-released
    result, and safe to call with `result == NULL` (both no-ops). */
 void oep_batch_create_relationships_result_release(oep_batch_create_relationships_result_t* result);
+
+/* ------------------------------------------------------------------ */
+/* Package Installation (WP-REP-001 -- Repository Runtime, first        */
+/* vertical slice; OEP-ARCH-002)                                        */
+/* ------------------------------------------------------------------ */
+/*
+ * Installs a validated .oep package archive (PKG-001/PKG-002) into the
+ * currently open repository: extracts its Repository Fragment's
+ * Engineering Objects and Relationships, creates them through the same
+ * ObjectStore/RelationshipStore paths oep_object_create/
+ * oep_relationship_create already use, records the install in the
+ * Package Registry, and rebuilds the Search/Graph indexes.
+ *
+ * Deliberately NOT transactional: a failure partway through does not roll
+ * back objects/relationships already created (see
+ * oep::runtime::FoundationRuntime::install_package's own documentation).
+ * Dependency resolution, digital signature verification, updates, and
+ * uninstallation are not part of this surface -- see OEP-ARCH-002 for the
+ * roadmap. Only ZIP archives using the "Stored" (uncompressed) entry
+ * method can currently be read; a DEFLATE-compressed .oep archive fails
+ * with OEP_ERROR_OPERATION_FAILED -- see platform/installer's own
+ * documented limitation.
+ */
+
+#define OEP_MAX_PACKAGE_ID 256
+#define OEP_MAX_PACKAGE_VERSION 32
+#define OEP_MAX_PACKAGE_TITLE 256
+#define OEP_MAX_PACKAGE_SOURCE 32
+
+/* The outcome of a successful oep_package_install call. Not populated
+   (zero-initialized) when the call fails -- see oep_result_t for the
+   failure reason. */
+typedef struct oep_package_install_result_t {
+    char package_id[OEP_MAX_PACKAGE_ID];
+    char version[OEP_MAX_PACKAGE_VERSION];
+    int objects_created;
+    int relationships_created;
+} oep_package_install_result_t;
+
+/* Installs the .oep archive at `archive_path` (NUL-terminated UTF-8,
+   filesystem path) into the currently open repository. Only valid from
+   RepositoryOpen; fails with OEP_ERROR_INVALID_STATE otherwise. Fails with
+   OEP_ERROR_OPERATION_FAILED if the archive cannot be read/parsed, its
+   manifest is invalid, or a package with the same packageId is already
+   installed. `archive_path` must not be NULL. `out_result` may be NULL;
+   if non-NULL, it is populated on success and zero-initialized on
+   failure. */
+oep_result_t oep_package_install(OEP_Runtime runtime, const char* archive_path,
+                                  oep_package_install_result_t* out_result);
+
+/* A deterministic, fixed-layout snapshot of one installed package's
+   Package Registry record -- no pointers, safe to copy by value or
+   convert directly into a language-native model. */
+typedef struct oep_installed_package_info_t {
+    char package_id[OEP_MAX_PACKAGE_ID];
+    char version[OEP_MAX_PACKAGE_VERSION];
+    char title[OEP_MAX_PACKAGE_TITLE];
+    char installed_utc[OEP_MAX_TIMESTAMP];
+    char source[OEP_MAX_PACKAGE_SOURCE];
+    int object_count;
+    int relationship_count;
+} oep_installed_package_info_t;
+
+/* An enumerated collection of installed packages. `items` is a
+   Foundation-owned heap array of `count` elements, sorted deterministically
+   by package_id (ascending, byte-wise). Follows the same ownership model
+   as oep_object_list_t (Work Package 012, TASK-000023). */
+typedef struct oep_installed_package_list_t {
+    oep_installed_package_info_t* items;
+    int count;
+} oep_installed_package_list_t;
+
+/* Enumerates every package the Package Registry has recorded as installed
+   in the currently open repository, sorted deterministically by
+   package_id. Only valid from RepositoryOpen; fails with
+   OEP_ERROR_INVALID_STATE otherwise, in which case `*out_list` is
+   zero-initialized. `out_list` must not be NULL.
+
+   Ownership: on success, the caller owns `out_list->items` and must
+   release it with exactly one call to
+   oep_installed_package_list_release. */
+oep_result_t oep_package_list_installed(OEP_Runtime runtime, oep_installed_package_list_t* out_list);
+
+/* Releases the heap array owned by `list` (if any) and zeroes
+   `list->items`/`list->count`. Safe to call on a zero-initialized or
+   already-released list. `list` itself may be NULL (a no-op). */
+void oep_installed_package_list_release(oep_installed_package_list_t* list);
+
+/* ------------------------------------------------------------------ */
+/* Package Lifecycle Queries (WP-REP-002 -- Repository Registry &       */
+/* Lifecycle)                                                           */
+/* ------------------------------------------------------------------ */
+/*
+ * Read-only queries over the Repository Registry -- the authoritative
+ * inventory of every .oep package installed in the currently open
+ * Foundation Repository. None of these functions mutate anything;
+ * update, uninstall, and activation remain out of scope through
+ * WP-REP-002. All require RepositoryOpen and fail with
+ * OEP_ERROR_INVALID_STATE otherwise.
+ */
+
+#define OEP_MAX_PACKAGE_SUMMARY 512
+#define OEP_MAX_PACKAGE_CATEGORY 64
+#define OEP_MAX_PACKAGE_PUBLISHER 128
+#define OEP_MAX_PACKAGE_HASH 72
+#define OEP_MAX_PACKAGE_PATH 512
+#define OEP_MAX_PACKAGE_STATE 32
+#define OEP_MAX_PACKAGE_DOMAINS 8
+#define OEP_MAX_PACKAGE_DOMAIN_LENGTH 64
+
+/* The full Repository Registry record for one installed package -- a
+   deterministic, fixed-layout, pointer-free superset of
+   oep_installed_package_info_t (which is retained unchanged for ABI
+   compatibility with OEP_API_VERSION 5 callers). String fields are
+   truncated (never overflowed) if longer than the field's capacity;
+   `engineering_domain_count` is capped at OEP_MAX_PACKAGE_DOMAINS. */
+typedef struct oep_package_details_t {
+    char package_id[OEP_MAX_PACKAGE_ID];
+    char version[OEP_MAX_PACKAGE_VERSION];
+    char title[OEP_MAX_PACKAGE_TITLE];
+    char summary[OEP_MAX_PACKAGE_SUMMARY];
+    char category[OEP_MAX_PACKAGE_CATEGORY];
+    char publisher_id[OEP_MAX_PACKAGE_PUBLISHER];
+    char publisher_name[OEP_MAX_PACKAGE_PUBLISHER];
+    char installed_utc[OEP_MAX_TIMESTAMP];
+    char source[OEP_MAX_PACKAGE_SOURCE];
+    /* Absolute path of the source .oep archive at install time. The
+       archive may have been deleted since; see oep_package_verify. */
+    char installation_path[OEP_MAX_PACKAGE_PATH];
+    /* SHA-256 hex digest of the archive's bytes at install time. An
+       integrity fingerprint only -- NOT a signature or trust mechanism
+       (signature verification is a future work package, PKG-005). */
+    char package_hash[OEP_MAX_PACKAGE_HASH];
+    /* Always "Installed" through WP-REP-002; other PKG-008 lifecycle
+       states require update/uninstall/activation functionality that
+       does not exist yet. */
+    char runtime_state[OEP_MAX_PACKAGE_STATE];
+    int engineering_domain_count;
+    char engineering_domains[OEP_MAX_PACKAGE_DOMAINS][OEP_MAX_PACKAGE_DOMAIN_LENGTH];
+    int object_count;
+    int relationship_count;
+} oep_package_details_t;
+
+/* Populates `out_details` with the Repository Registry record for
+   `package_id`. Fails with OEP_ERROR_NOT_FOUND if no package with that
+   ID is installed, in which case `*out_details` is zero-initialized.
+   `package_id` and `out_details` must not be NULL. No allocation --
+   plain value type, no release function. */
+oep_result_t oep_package_get_info(OEP_Runtime runtime, const char* package_id, oep_package_details_t* out_details);
+
+/* Populates `out_objects`/`out_relationships` with the full Engineering
+   Objects and Relationships the package identified by `package_id`
+   contributed to the repository, loaded live from the repository's own
+   stores (the Repository Registry records only their IDs -- Engineering
+   Object data is never duplicated into it). An object/relationship that
+   was recorded but has since been deleted from the repository is simply
+   absent from the returned lists -- use oep_package_verify to detect
+   that condition explicitly. Fails with OEP_ERROR_NOT_FOUND if no
+   package with that ID is installed.
+
+   Ownership: on success the caller owns both lists and must release
+   them with exactly one call each to oep_object_list_release and
+   oep_relationship_list_release -- the same release functions every
+   other object/relationship list in this API already uses. */
+oep_result_t oep_package_get_contents(OEP_Runtime runtime, const char* package_id, oep_object_list_t* out_objects,
+                                       oep_relationship_list_t* out_relationships);
+
+/* The kind of entity oep_package_locate resolved. */
+typedef enum oep_owned_entity_kind_t {
+    OEP_OWNED_ENTITY_NONE = 0,
+    OEP_OWNED_ENTITY_OBJECT = 1,
+    OEP_OWNED_ENTITY_RELATIONSHIP = 2,
+} oep_owned_entity_kind_t;
+
+/* The outcome of oep_package_locate: which installed package (if any)
+   contributed the entity. Plain value type, no release function. */
+typedef struct oep_package_owner_t {
+    /* Nonzero iff some installed package owns the entity; the fields
+       below are only meaningful when nonzero. */
+    int found;
+    oep_owned_entity_kind_t kind;
+    char package_id[OEP_MAX_PACKAGE_ID];
+    char version[OEP_MAX_PACKAGE_VERSION];
+    char title[OEP_MAX_PACKAGE_TITLE];
+} oep_package_owner_t;
+
+/* Looks up which installed package contributed the Engineering Object
+   or Relationship identified by `entity_id`. An entity no installed
+   package owns (including one that doesn't exist at all) succeeds with
+   `out_owner->found == 0` -- that is a normal answer, not an error.
+   `entity_id` and `out_owner` must not be NULL. */
+oep_result_t oep_package_locate(OEP_Runtime runtime, const char* entity_id, oep_package_owner_t* out_owner);
+
+/* The outcome of oep_package_verify. Plain value type, no release
+   function. `verified` is nonzero iff every contribution the Repository
+   Registry recorded for the package still exists in the repository,
+   AND -- when the source archive still exists at its recorded
+   installation path -- its bytes still hash to the recorded SHA-256.
+   A missing archive is NOT a verification failure (archives are
+   transport, not the installed content), only reported via
+   `archive_available == 0`. */
+typedef struct oep_package_verify_result_t {
+    int verified;
+    int objects_expected;
+    int objects_present;
+    int relationships_expected;
+    int relationships_present;
+    int archive_available;
+    /* Only meaningful when archive_available is nonzero. */
+    int archive_hash_matches;
+} oep_package_verify_result_t;
+
+/* Verifies the installation status of `package_id` against live
+   repository state. Fails with OEP_ERROR_NOT_FOUND if no package with
+   that ID is installed. A package that IS installed but fails
+   verification still returns success -- the verification outcome is in
+   `out_result->verified`, not the oep_result_t. `package_id` and
+   `out_result` must not be NULL. */
+oep_result_t oep_package_verify(OEP_Runtime runtime, const char* package_id,
+                                 oep_package_verify_result_t* out_result);
+
+/* Searches installed packages for `query` (case-insensitive substring
+   match over package ID, title, summary, category, version, publisher,
+   engineering domains, and the names of the Engineering Objects each
+   package installed). Fails with OEP_ERROR_INVALID_ARGUMENT for a NULL
+   or empty query -- a valid, non-matching query still succeeds with a
+   zero-length list. Results are sorted deterministically by package_id
+   (ascending, byte-wise), matching oep_package_list_installed.
+
+   Ownership: release with oep_installed_package_list_release, exactly
+   as for oep_package_list_installed. */
+oep_result_t oep_package_search(OEP_Runtime runtime, const char* query, oep_installed_package_list_t* out_list);
+
+/* ------------------------------------------------------------------ */
+/* Repository Transaction Engine (WP-REP-003)                          */
+/* ------------------------------------------------------------------ */
+/*
+ * WP-REP-003 upgraded the transaction primitives above (Work Package
+ * 014's oep_transaction_begin/_commit/_rollback/_is_active — every
+ * signature unchanged) into the Repository Transaction Engine: every
+ * transaction now has a UUIDv4 identity, every Runtime write outside an
+ * explicit transaction runs inside an implicit one, and every closed
+ * transaction writes a permanent journal record under the open
+ * repository's `logs/transactions/` directory (PKG-003 §15/§26).
+ * oep_package_install is atomic since this version: a failure rolls back
+ * every object/relationship it had created, superseding WP-REP-001/002's
+ * documented non-transactional behavior.
+ *
+ * One behavior change to oep_transaction_commit, documented rather than
+ * hidden: it can now fail in exactly one new way — the journal record
+ * could not be written. The mutations themselves are already persisted
+ * in that case; the error exists so a caller knows the audit trail is
+ * incomplete, never to signal data loss.
+ */
+
+#define OEP_MAX_TRANSACTION_ID 64
+#define OEP_MAX_TRANSACTION_STATE 16
+#define OEP_MAX_TRANSACTION_DESCRIPTION 128
+
+/* The active transaction's identity and progress. Plain value type, no
+   release function. `active == 0` (with a successful oep_result_t)
+   means no transaction is open — a normal answer, not an error; every
+   other field is only meaningful when `active` is nonzero. */
+typedef struct oep_transaction_info_t {
+    int active;
+    char transaction_id[OEP_MAX_TRANSACTION_ID];
+    char description[OEP_MAX_TRANSACTION_DESCRIPTION];
+    int journal_entry_count;
+} oep_transaction_info_t;
+
+/* Populates `out_info` with the currently active transaction (if any).
+   Only valid from RepositoryOpen. `out_info` must not be NULL. */
+oep_result_t oep_transaction_get_info(OEP_Runtime runtime, oep_transaction_info_t* out_info);
+
+/* One journaled (closed) transaction. `state` is one of "Committed",
+   "RolledBack", or "Failed" (a rollback that could not fully complete).
+   Plain value type. */
+typedef struct oep_transaction_record_t {
+    char transaction_id[OEP_MAX_TRANSACTION_ID];
+    char state[OEP_MAX_TRANSACTION_STATE];
+    char description[OEP_MAX_TRANSACTION_DESCRIPTION];
+    char opened_utc[OEP_MAX_TIMESTAMP];
+    char closed_utc[OEP_MAX_TIMESTAMP];
+    int journal_entry_count;
+} oep_transaction_record_t;
+
+/* `items` is a Foundation-owned heap array, sorted deterministically by
+   opened time then transaction id. Follows the same ownership model as
+   every other *_list_t in this API. */
+typedef struct oep_transaction_record_list_t {
+    oep_transaction_record_t* items;
+    int count;
+} oep_transaction_record_list_t;
+
+/* Enumerates every journaled transaction for the open repository. Only
+   valid from RepositoryOpen; fails with OEP_ERROR_INVALID_STATE
+   otherwise, in which case `*out_list` is zero-initialized. `out_list`
+   must not be NULL.
+
+   Ownership: on success, the caller owns `out_list->items` and must
+   release it with exactly one call to
+   oep_transaction_record_list_release. */
+oep_result_t oep_transaction_history(OEP_Runtime runtime, oep_transaction_record_list_t* out_list);
+
+/* Releases the heap array owned by `list` (if any) and zeroes it. Safe
+   to call on a zero-initialized or already-released list. `list` itself
+   may be NULL (a no-op). */
+void oep_transaction_record_list_release(oep_transaction_record_list_t* list);
+
+/* ------------------------------------------------------------------ */
+/* Trust & Signing (WP-REP-004 -- Repository Trust & Signing            */
+/* Subsystem)                                                           */
+/* ------------------------------------------------------------------ */
+/*
+ * Per PKG-005 (Package Trust & Digital Signature): every .oep package is
+ * verified -- offline, against this repository's own Trust Store of
+ * locally trusted publisher certificates -- before installation.
+ * oep_package_install (see "Package Installation" above) now performs
+ * this verification BEFORE any Repository Transaction begins; a package
+ * that is Tampered, has an InvalidSignature, an UnknownPublisher, an
+ * ExpiredCertificate, or a RevokedCertificate is rejected outright, with
+ * no transaction ever opened. An Unsigned package installs exactly as
+ * before UNLESS this repository's trust policy requires signatures
+ * (oep_trust_get_policy/oep_trust_set_policy) -- preserving every
+ * earlier work package's default unsigned-install behavior.
+ *
+ * The Trust Store holds certificates entirely locally: there is no
+ * certificate authority, online revocation feed, or Engineering Exchange
+ * call anywhere in this section (PKG-005 §3: "Verification shall never
+ * require access to the Engineering Exchange"). A certificate is trusted
+ * by explicit local action (oep_trust_add_certificate) and revoked the
+ * same way (oep_trust_revoke_certificate) -- both are local repository
+ * writes, not Repository Transactions (they touch `settings/trust/`, not
+ * Engineering Objects/Relationships).
+ */
+
+typedef enum oep_trust_state_t {
+    OEP_TRUST_TRUSTED = 0,
+    OEP_TRUST_UNSIGNED = 1,
+    OEP_TRUST_UNKNOWN_PUBLISHER = 2,
+    OEP_TRUST_EXPIRED_CERTIFICATE = 3,
+    OEP_TRUST_REVOKED_CERTIFICATE = 4,
+    OEP_TRUST_INVALID_SIGNATURE = 5,
+    OEP_TRUST_TAMPERED = 6,
+} oep_trust_state_t;
+
+/* Returns a static, human-readable name for `state` (e.g. "Trusted",
+   "RevokedCertificate"). Never freed by the caller. Deterministic. */
+const char* oep_trust_state_to_string(oep_trust_state_t state);
+
+#define OEP_MAX_PUBLISHER_ID 128
+#define OEP_MAX_PUBLISHER_NAME 128
+#define OEP_MAX_PUBLIC_KEY_HEX 65
+#define OEP_MAX_CERT_ISSUER 128
+#define OEP_MAX_CERT_VERSION 16
+#define OEP_MAX_FINGERPRINT 65
+
+/* One trusted publisher certificate (PKG-005 §7). Plain, pointer-free
+   value type. `fingerprint` is always computed by the Trust Store itself
+   (SHA-256 of the raw public key), never taken from caller input. */
+typedef struct oep_publisher_certificate_t {
+    char publisher_id[OEP_MAX_PUBLISHER_ID];
+    char publisher_name[OEP_MAX_PUBLISHER_NAME];
+    char public_key_hex[OEP_MAX_PUBLIC_KEY_HEX]; /* 64 hex chars = raw 32-byte Ed25519 public key */
+    char issued_utc[OEP_MAX_TIMESTAMP];
+    char expires_utc[OEP_MAX_TIMESTAMP]; /* empty = never expires */
+    char issuer[OEP_MAX_CERT_ISSUER];
+    char version[OEP_MAX_CERT_VERSION];
+    char fingerprint[OEP_MAX_FINGERPRINT];
+    int revoked;
+    char revoked_utc[OEP_MAX_TIMESTAMP];
+} oep_publisher_certificate_t;
+
+/* Adds (trusts) a publisher certificate to this repository's Trust
+   Store. `publisher_id` and `public_key_hex` (exactly 64 hex characters)
+   must not be NULL; `publisher_name`/`issued_utc`/`expires_utc`/
+   `issuer`/`version` may be NULL, treated as empty. Fails with
+   OEP_ERROR_OPERATION_FAILED if the publisher already has a certificate
+   (renewal is not part of this Work Package) or the public key is
+   malformed. On success, `out_certificate` (if non-NULL) is populated
+   with the stored certificate, including its computed fingerprint. Only
+   valid from RepositoryOpen. */
+oep_result_t oep_trust_add_certificate(OEP_Runtime runtime, const char* publisher_id, const char* publisher_name,
+                                        const char* public_key_hex, const char* issued_utc, const char* expires_utc,
+                                        const char* issuer, const char* version,
+                                        oep_publisher_certificate_t* out_certificate);
+
+/* Populates `out_certificate` with the certificate trusted for
+   `publisher_id`. Fails with OEP_ERROR_NOT_FOUND if no certificate is
+   on file for that publisher. Only valid from RepositoryOpen. */
+oep_result_t oep_trust_get_certificate(OEP_Runtime runtime, const char* publisher_id,
+                                        oep_publisher_certificate_t* out_certificate);
+
+/* `items` is a Foundation-owned heap array, sorted deterministically by
+   publisher_id. Follows the same ownership model as every other *_list_t
+   in this API. */
+typedef struct oep_certificate_list_t {
+    oep_publisher_certificate_t* items;
+    int count;
+} oep_certificate_list_t;
+
+/* Enumerates every certificate in this repository's Trust Store
+   (trusted and revoked alike -- check each entry's `revoked` field).
+   Only valid from RepositoryOpen.
+
+   Ownership: on success, the caller owns `out_list->items` and must
+   release it with exactly one call to oep_certificate_list_release. */
+oep_result_t oep_trust_list_certificates(OEP_Runtime runtime, oep_certificate_list_t* out_list);
+
+/* Releases the heap array owned by `list` (if any) and zeroes it. Safe
+   to call on a zero-initialized or already-released list. `list` itself
+   may be NULL (a no-op). */
+void oep_certificate_list_release(oep_certificate_list_t* list);
+
+/* Marks `publisher_id`'s certificate revoked. The certificate record is
+   kept (PKG-005 §12/§13's retained-trust-history model) with
+   `revoked = 1` and `revoked_utc` set -- this does not uninstall any
+   package already installed from that publisher (uninstall is out of
+   scope). Fails with OEP_ERROR_NOT_FOUND if no certificate is on file,
+   or OEP_ERROR_OPERATION_FAILED if it is already revoked. Only valid
+   from RepositoryOpen. */
+oep_result_t oep_trust_revoke_certificate(OEP_Runtime runtime, const char* publisher_id);
+
+/* Populates `*out_require_signatures` with this repository's trust
+   policy: nonzero iff unsigned packages are rejected at install. The
+   default (a fresh repository, or one where the policy was never set)
+   is 0 -- unsigned packages install, matching every earlier work
+   package's behavior. Only valid from RepositoryOpen. */
+oep_result_t oep_trust_get_policy(OEP_Runtime runtime, int* out_require_signatures);
+
+/* Sets this repository's trust policy. Only valid from RepositoryOpen. */
+oep_result_t oep_trust_set_policy(OEP_Runtime runtime, int require_signatures);
+
+/* The trust outcome recorded for an installed package. Plain value
+   type, no release function. */
+typedef struct oep_package_trust_status_t {
+    oep_trust_state_t state;
+    char fingerprint[OEP_MAX_FINGERPRINT]; /* empty unless a certificate was matched */
+} oep_package_trust_status_t;
+
+/* Populates `out_status` with the trust outcome recorded for
+   `package_id` at install time (WP-REP-004; recorded once, not
+   re-verified on demand -- PKG-005 §16's "revalidate at any time" is
+   deferred). Fails with OEP_ERROR_NOT_FOUND if no package with that ID
+   is installed. Only valid from RepositoryOpen. */
+oep_result_t oep_package_get_trust_status(OEP_Runtime runtime, const char* package_id,
+                                           oep_package_trust_status_t* out_status);
 
 #ifdef __cplusplus
 }
